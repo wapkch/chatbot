@@ -3,8 +3,8 @@ import Foundation
 struct ChatResponse: Codable {
     let id: String
     let object: String
-    let created: Int
-    let model: String
+    let created: Int?       // Make optional for streaming responses
+    let model: String?      // Make optional as some streaming chunks might not have it
     let choices: [Choice]
 
     struct Choice: Codable {
