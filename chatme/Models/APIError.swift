@@ -1,6 +1,6 @@
 import Foundation
 
-enum APIError: Error, LocalizedError {
+enum APIError: Error, LocalizedError, Equatable {
     case invalidURL(String)
     case authenticationFailed(String)
     case modelNotFound(String)

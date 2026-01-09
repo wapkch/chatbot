@@ -1,26 +1,15 @@
-//
-//  ContentView.swift
-//  chatme
-//
-//  Created by wangchao on 2026/1/9.
-//
-
 import SwiftUI
 import CoreData
 
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
+        ChatView()
     }
 }
 
-#Preview {
-    ContentView()
-        .environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
+            .environment(\.managedObjectContext, PersistenceController.shared.container.viewContext)
+    }
 }
