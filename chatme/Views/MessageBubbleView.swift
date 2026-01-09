@@ -84,7 +84,7 @@ struct MessageBubbleView: View {
                         .clipShape(messageBubbleShape)
                         .textSelection(.enabled)
                 } else {
-                    // Assistant messages: Markdown formatted
+                    // Assistant messages: Optimized Markdown formatted
                     MarkdownText(markdown: message.content)
                         .font(.messageFont)
                         .foregroundColor(textColor)

@@ -4,6 +4,7 @@ import Foundation
 struct MarkdownText: View {
     let markdown: String
     @State private var attributedString: AttributedString = AttributedString()
+    @State private var parseTask: Task<Void, Never>?
 
     var body: some View {
         Text(attributedString)
@@ -17,24 +18,45 @@ struct MarkdownText: View {
     }
 
     private func parseMarkdown() {
-        Task {
+        // Cancel previous parsing task
+        parseTask?.cancel()
+
+        parseTask = Task {
             do {
-                // Use iOS 15+ native Markdown parsing
-                let parsed = try AttributedString(markdown: markdown, options: AttributedString.MarkdownParsingOptions(
-                    interpretedSyntax: .inlineOnlyPreservingWhitespace
-                ))
+                // For streaming content, only parse if content looks complete
+                // This avoids constantly re-parsing incomplete markdown
+                let shouldParseMarkdown = isContentComplete(markdown)
+
+                let parsed: AttributedString
+                if shouldParseMarkdown {
+                    parsed = try AttributedString(markdown: markdown, options: AttributedString.MarkdownParsingOptions(
+                        interpretedSyntax: .inlineOnlyPreservingWhitespace
+                    ))
+                } else {
+                    // For incomplete content, just show as plain text
+                    parsed = AttributedString(markdown)
+                }
 
                 await MainActor.run {
-                    attributedString = parsed
+                    if !Task.isCancelled {
+                        attributedString = parsed
+                    }
                 }
             } catch {
                 // Fallback to plain text if Markdown parsing fails
                 await MainActor.run {
-                    attributedString = AttributedString(markdown)
+                    if !Task.isCancelled {
+                        attributedString = AttributedString(markdown)
+                    }
                 }
-                print("Markdown parsing failed: \(error)")
             }
         }
+    }
+
+    private func isContentComplete(_ content: String) -> Bool {
+        // Simple heuristic: consider content complete if it ends with punctuation or whitespace
+        // This avoids parsing incomplete sentences during streaming
+        return content.isEmpty || content.last?.isWhitespace == true || ".,!?;:".contains(content.last ?? " ")
     }
 }
 
