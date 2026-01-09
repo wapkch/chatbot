@@ -103,20 +103,6 @@ class OpenAIService: ObservableObject {
         )
 
         return urlSession.dataTaskPublisher(for: request)
-            .handleEvents(
-                receiveSubscription: { _ in
-                    print("🔍 DEBUG: URLSession subscription started")
-                },
-                receiveOutput: { data, response in
-                    print("🔍 DEBUG: Received \(data.count) bytes from URLSession")
-                },
-                receiveCompletion: { completion in
-                    print("🔍 DEBUG: URLSession completed: \(completion)")
-                },
-                receiveCancel: {
-                    print("🔍 DEBUG: URLSession cancelled")
-                }
-            )
             .tryMap { [weak self] data, response -> Data in
                 guard let self = self else {
                     throw APIError.streamingError("Service deallocated")
@@ -126,27 +112,12 @@ class OpenAIService: ObservableObject {
             .compactMap { [weak self] data -> [String]? in
                 guard let self = self else { return nil }
                 let chunks = self.parseStreamingData(data)
-                if chunks.isEmpty {
-                    print("🔍 DEBUG: No chunks extracted from \(data.count) bytes")
-                } else {
-                    print("🔍 DEBUG: Extracted \(chunks.count) chunks: \(chunks)")
-                }
                 return chunks.isEmpty ? nil : chunks
             }
             .flatMap { chunks -> Publishers.Sequence<[String], Never> in
-                print("🔍 DEBUG: Publishing \(chunks.count) chunks")
-                return Publishers.Sequence(sequence: chunks)
+                Publishers.Sequence(sequence: chunks)
             }
-            .handleEvents(
-                receiveOutput: { chunk in
-                    print("🔍 DEBUG: Emitting chunk: '\(chunk)'")
-                },
-                receiveCompletion: { completion in
-                    print("🔍 DEBUG: Stream completed with: \(completion)")
-                }
-            )
             .mapError { error in
-                print("🔍 DEBUG: Stream error: \(error)")
                 if let apiError = error as? APIError {
                     return apiError
                 } else {
@@ -226,29 +197,18 @@ class OpenAIService: ObservableObject {
         // Check for stream end marker
         let hasEndMarker = completeLines.contains(Constants.streamEndMarker)
         if hasEndMarker {
-            print("🔍 DEBUG: Found stream end marker [DONE]")
-
             // If we have [DONE] and buffer content, process the buffer as final line
             if !streamBuffer.isEmpty && streamBuffer.hasPrefix(Constants.streamDataPrefix) && streamBuffer != Constants.streamEndMarker {
-                print("🔍 DEBUG: Processing final buffer line: '\(streamBuffer)'")
                 completeLines.append(streamBuffer)
                 streamBuffer = "" // Clear buffer after processing
             }
         }
 
-        // Process only complete lines
-        print("🔍 DEBUG: Complete lines: \(completeLines)")
-
         let filteredLines = completeLines.filter { $0.hasPrefix(Constants.streamDataPrefix) && $0 != Constants.streamEndMarker }
-        print("🔍 DEBUG: Filtered to \(filteredLines.count) SSE lines")
 
         return filteredLines.compactMap { [weak self] line in
             guard let self = self else { return nil }
-            let content = self.extractContentFromStreamLine(line)
-            if let content = content {
-                print("🔍 DEBUG: Extracted content: '\(content)'")
-            }
-            return content
+            return self.extractContentFromStreamLine(line)
         }
     }
 
