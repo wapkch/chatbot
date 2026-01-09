@@ -38,29 +38,35 @@ class OpenAIService: ObservableObject {
         conversationHistory: [ChatMessage] = []
     ) -> AnyPublisher<String, APIError> {
 
-        return Future<AnyPublisher<String, APIError>, APIError> { promise in
-            Task { [weak self] in
-                guard let self = self else {
-                    promise(.failure(APIError.streamingError("Service deallocated")))
-                    return
-                }
+        // Reset buffer for new stream
+        streamBuffer = ""
 
-                do {
-                    let publisher = try await self.createStreamingPublisher(
-                        message: message,
-                        configuration: configuration,
-                        conversationHistory: conversationHistory
-                    )
-                    promise(.success(publisher))
-                } catch let error as APIError {
-                    promise(.failure(error))
-                } catch {
-                    promise(.failure(APIError.streamingError(error.localizedDescription)))
+        return Deferred {
+            Future<AnyPublisher<String, APIError>, APIError> { [weak self] promise in
+                Task {
+                    guard let self = self else {
+                        promise(.failure(APIError.streamingError("Service deallocated")))
+                        return
+                    }
+
+                    do {
+                        let publisher = try await self.createStreamingPublisher(
+                            message: message,
+                            configuration: configuration,
+                            conversationHistory: conversationHistory
+                        )
+                        promise(.success(publisher))
+                    } catch let error as APIError {
+                        promise(.failure(error))
+                    } catch {
+                        promise(.failure(APIError.streamingError(error.localizedDescription)))
+                    }
                 }
             }
-        }
-        .flatMap { (publisher: AnyPublisher<String, APIError>) in
-            return publisher
+            .flatMap { publisher in
+                publisher
+            }
+            .eraseToAnyPublisher()
         }
         .eraseToAnyPublisher()
     }
@@ -71,9 +77,6 @@ class OpenAIService: ObservableObject {
         configuration: APIConfiguration,
         conversationHistory: [ChatMessage]
     ) async throws -> AnyPublisher<String, APIError> {
-
-        // Reset buffer for new stream
-        streamBuffer = ""
 
         // Get API key from keychain
         guard let apiKey = await configurationManager.getAPIKey(for: configuration) else {
@@ -195,7 +198,11 @@ class OpenAIService: ObservableObject {
 
         return filteredLines.compactMap { [weak self] line in
             guard let self = self else { return nil }
-            return self.extractContentFromStreamLine(line)
+            let content = self.extractContentFromStreamLine(line)
+            if let content = content, !content.isEmpty {
+                print("🔍 STREAM: [\(Date())] Extracted content: '\(content)'")
+            }
+            return content
         }
     }
 
