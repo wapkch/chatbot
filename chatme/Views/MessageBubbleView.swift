@@ -73,14 +73,26 @@ struct MessageBubbleView: View {
                     typingAnimation = true
                 }
             } else {
-                Text(message.content)
-                    .font(.messageFont)
-                    .foregroundColor(textColor)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(messageBubbleColor)
-                    .clipShape(messageBubbleShape)
-                    .textSelection(.enabled) // Enable text selection
+                if message.isFromUser {
+                    // User messages: plain text
+                    Text(message.content)
+                        .font(.messageFont)
+                        .foregroundColor(textColor)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(messageBubbleColor)
+                        .clipShape(messageBubbleShape)
+                        .textSelection(.enabled)
+                } else {
+                    // Assistant messages: Markdown formatted
+                    MarkdownText(markdown: message.content)
+                        .font(.messageFont)
+                        .foregroundColor(textColor)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(messageBubbleColor)
+                        .clipShape(messageBubbleShape)
+                }
             }
         }
     }
