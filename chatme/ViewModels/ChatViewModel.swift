@@ -82,8 +82,16 @@ class ChatViewModel: ObservableObject {
                     }
 
                     print("🔍 DEBUG: Animating text at index \(lastIndex)")
-                    // For smooth typing effect, simulate character-by-character display
-                    self.animateText(content, at: lastIndex)
+                    // Simple append - no animation for now to ensure stability
+                    let lastMessage = self.messages[lastIndex]
+                    let updatedContent = lastMessage.content + content
+
+                    self.messages[lastIndex] = MessageViewModel(
+                        id: lastMessage.id,
+                        content: updatedContent,
+                        isFromUser: false,
+                        timestamp: lastMessage.timestamp
+                    )
                 }
             )
             .store(in: &cancellables)
