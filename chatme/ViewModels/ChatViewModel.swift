@@ -71,6 +71,7 @@ class ChatViewModel: ObservableObject {
                     }
                 },
                 receiveValue: { [weak self] content in
+                    print("🔍 STREAMING: [\(Date())] Chunk received: '\(content)'")
                     guard let self = self, let lastIndex = self.messages.lastIndex(where: { !$0.isFromUser }) else {
                         return
                     }
@@ -78,12 +79,20 @@ class ChatViewModel: ObservableObject {
                     let lastMessage = self.messages[lastIndex]
                     let updatedContent = lastMessage.content + content
 
-                    self.messages[lastIndex] = MessageViewModel(
-                        id: lastMessage.id,
-                        content: updatedContent,
-                        isFromUser: false,
-                        timestamp: lastMessage.timestamp
-                    )
+                    print("🔍 STREAMING: Updating UI from '\(lastMessage.content)' to '\(updatedContent)'")
+
+                    // Force UI update with slight delay to ensure SwiftUI processes it
+                    DispatchQueue.main.async {
+                        self.messages[lastIndex] = MessageViewModel(
+                            id: lastMessage.id,
+                            content: updatedContent,
+                            isFromUser: false,
+                            timestamp: lastMessage.timestamp
+                        )
+
+                        // Force view refresh
+                        self.objectWillChange.send()
+                    }
                 }
             )
             .store(in: &cancellables)
