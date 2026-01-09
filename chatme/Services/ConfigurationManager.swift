@@ -274,8 +274,12 @@ class ConfigurationManager: ObservableObject {
     /// - Parameter config: The configuration to check
     /// - Returns: True if API key exists
     func hasAPIKey(for config: APIConfiguration) async -> Bool {
-        return await queue.execute {
-            return self.keychainManager.apiKeyExists(for: config.id.uuidString)
+        do {
+            return try await queue.execute {
+                return self.keychainManager.apiKeyExists(for: config.id.uuidString)
+            }
+        } catch {
+            return false
         }
     }
 
