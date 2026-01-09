@@ -75,15 +75,8 @@ class ChatViewModel: ObservableObject {
                         return
                     }
 
-                    let lastMessage = self.messages[lastIndex]
-                    let updatedContent = lastMessage.content + content
-
-                    self.messages[lastIndex] = MessageViewModel(
-                        id: lastMessage.id,
-                        content: updatedContent,
-                        isFromUser: false,
-                        timestamp: lastMessage.timestamp
-                    )
+                    // For smooth typing effect, simulate character-by-character display
+                    self.animateText(content, at: lastIndex)
                 }
             )
             .store(in: &cancellables)
@@ -132,6 +125,26 @@ class ChatViewModel: ObservableObject {
 
     func clearError() {
         currentError = nil
+    }
+
+    private func animateText(_ newContent: String, at index: Int) {
+        let lastMessage = messages[index]
+        let currentContent = lastMessage.content
+        let characters = Array(newContent)
+
+        // Add characters one by one with a small delay for typing effect
+        for (i, character) in characters.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.03) {
+                let updatedContent = currentContent + String(characters[0...i])
+
+                self.messages[index] = MessageViewModel(
+                    id: lastMessage.id,
+                    content: updatedContent,
+                    isFromUser: false,
+                    timestamp: lastMessage.timestamp
+                )
+            }
+        }
     }
 
     deinit {

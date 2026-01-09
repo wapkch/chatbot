@@ -114,27 +114,9 @@ class OpenAIService: ObservableObject {
                 let chunks = self.parseStreamingData(data)
                 return chunks.isEmpty ? nil : chunks
             }
-            .flatMap { chunks -> AnyPublisher<String, Never> in
-                // Convert each chunk into character-by-character stream for smooth typing effect
-                let characterPublishers = chunks.map { chunk -> AnyPublisher<String, Never> in
-                    if chunk.isEmpty {
-                        return Empty<String, Never>().eraseToAnyPublisher()
-                    }
-
-                    // Split chunk into individual characters and emit with delay
-                    let characters = Array(chunk).map(String.init)
-
-                    return Publishers.Sequence(sequence: characters.indices)
-                        .flatMap { index -> AnyPublisher<String, Never> in
-                            Just(characters[index])
-                                .delay(for: .milliseconds(50 * index), scheduler: DispatchQueue.main)
-                                .eraseToAnyPublisher()
-                        }
-                        .eraseToAnyPublisher()
-                }
-
-                return Publishers.MergeMany(characterPublishers)
-                    .eraseToAnyPublisher()
+            .flatMap { chunks -> Publishers.Sequence<[String], Never> in
+                // Simply return chunks as-is for now - no character splitting
+                Publishers.Sequence(sequence: chunks)
             }
             .mapError { error in
                 if let apiError = error as? APIError {
