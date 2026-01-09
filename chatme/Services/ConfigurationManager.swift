@@ -62,9 +62,9 @@ class ConfigurationManager: ObservableObject {
     /// - Parameters:
     ///   - userDefaults: UserDefaults instance (default: .standard)
     ///   - keychainManager: KeychainManager instance (default: .shared)
-    init(userDefaults: UserDefaults = .standard, keychainManager: KeychainManager = .shared) {
+    init(userDefaults: UserDefaults = .standard, keychainManager: KeychainManager? = nil) {
         self.userDefaults = userDefaults
-        self.keychainManager = keychainManager
+        self.keychainManager = keychainManager ?? KeychainManager.shared
         Task {
             await loadConfigurations()
         }

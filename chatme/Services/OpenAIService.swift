@@ -1,86 +1,103 @@
 import Foundation
 import Combine
 
+// MARK: - Protocol for dependency injection
+protocol URLSessionProtocol {
+    func dataTaskPublisher(for request: URLRequest) -> URLSession.DataTaskPublisher
+}
+
+extension URLSession: URLSessionProtocol {}
+
 @MainActor
 class OpenAIService: ObservableObject {
-    private var cancellables = Set<AnyCancellable>()
-    private let configurationManager: ConfigurationManager
-
-    init(configurationManager: ConfigurationManager? = nil) {
-        self.configurationManager = configurationManager ?? ConfigurationManager()
+    // MARK: - Constants
+    private enum Constants {
+        static let streamDataPrefix = "data: "
+        static let streamEndMarker = "data: [DONE]"
+        static let contentTypeJSON = "application/json"
+        static let authorizationHeaderPrefix = "Bearer "
     }
 
+    // MARK: - Properties
+    private var cancellables = Set<AnyCancellable>()
+    private let configurationManager: ConfigurationManager
+    private let urlSession: URLSessionProtocol
+
+    // MARK: - Initializers
+    init(configurationManager: ConfigurationManager? = nil, urlSession: URLSessionProtocol = URLSession.shared) {
+        self.configurationManager = configurationManager ?? ConfigurationManager()
+        self.urlSession = urlSession
+    }
+
+    // MARK: - Public Methods
     func sendMessage(
         _ message: String,
         configuration: APIConfiguration,
         conversationHistory: [ChatMessage] = []
-    ) async -> AnyPublisher<String, APIError> {
+    ) -> AnyPublisher<String, APIError> {
+
+        return Future<AnyPublisher<String, APIError>, APIError> { promise in
+            Task { [weak self] in
+                guard let self = self else {
+                    promise(.failure(APIError.streamingError("Service deallocated")))
+                    return
+                }
+
+                do {
+                    let publisher = try await self.createStreamingPublisher(
+                        message: message,
+                        configuration: configuration,
+                        conversationHistory: conversationHistory
+                    )
+                    promise(.success(publisher))
+                } catch let error as APIError {
+                    promise(.failure(error))
+                } catch {
+                    promise(.failure(APIError.streamingError(error.localizedDescription)))
+                }
+            }
+        }
+        .flatMap { (publisher: AnyPublisher<String, APIError>) in
+            return publisher
+        }
+        .eraseToAnyPublisher()
+    }
+
+    // MARK: - Private Methods
+    private func createStreamingPublisher(
+        message: String,
+        configuration: APIConfiguration,
+        conversationHistory: [ChatMessage]
+    ) async throws -> AnyPublisher<String, APIError> {
 
         // Get API key from keychain
         guard let apiKey = await configurationManager.getAPIKey(for: configuration) else {
-            return Fail(error: APIError.authenticationFailed("API key not found"))
-                .eraseToAnyPublisher()
+            throw APIError.authenticationFailed("API key not found")
         }
 
         guard let url = URL(string: "\(configuration.baseURL)/chat/completions") else {
-            return Fail(error: APIError.invalidURL(configuration.baseURL))
-                .eraseToAnyPublisher()
+            throw APIError.invalidURL(configuration.baseURL)
         }
 
-        var messages = conversationHistory
-        messages.append(ChatMessage(role: "user", content: message))
+        // Build request
+        let request = try buildRequest(
+            url: url,
+            apiKey: apiKey,
+            message: message,
+            configuration: configuration,
+            conversationHistory: conversationHistory
+        )
 
-        let requestBody: [String: Any] = [
-            "model": configuration.modelID,
-            "messages": messages.map { ["role": $0.role, "content": $0.content] },
-            "stream": true
-        ]
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-        } catch {
-            return Fail(error: APIError.invalidJSONResponse)
-                .eraseToAnyPublisher()
-        }
-
-        return URLSession.shared.dataTaskPublisher(for: request)
-            .tryMap { data, response -> Data in
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    throw APIError.invalidResponse(statusCode: 0, message: "Invalid response")
+        return urlSession.dataTaskPublisher(for: request)
+            .tryMap { [weak self] data, response -> Data in
+                guard let self = self else {
+                    throw APIError.streamingError("Service deallocated")
                 }
-
-                if httpResponse.statusCode == 401 {
-                    throw APIError.authenticationFailed("Invalid API key")
-                } else if httpResponse.statusCode == 404 {
-                    throw APIError.modelNotFound(configuration.modelID)
-                } else if httpResponse.statusCode == 429 {
-                    let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After") ?? "60"
-                    throw APIError.rateLimitExceeded(retryAfter: TimeInterval(retryAfter) ?? 60)
-                } else if httpResponse.statusCode >= 400 {
-                    let message = String(data: data, encoding: .utf8) ?? "Unknown error"
-                    throw APIError.invalidResponse(statusCode: httpResponse.statusCode, message: message)
-                }
-
-                return data
+                return try self.validateHTTPResponse(data: data, response: response, modelID: configuration.modelID)
             }
-            .compactMap { data -> [String] in
-                let string = String(data: data, encoding: .utf8) ?? ""
-                return string.components(separatedBy: "\n")
-                    .filter { $0.hasPrefix("data: ") && $0 != "data: [DONE]" }
-                    .compactMap { line in
-                        let jsonString = String(line.dropFirst(6))
-                        guard let jsonData = jsonString.data(using: .utf8),
-                              let response = try? JSONDecoder().decode(ChatResponse.self, from: jsonData),
-                              let content = response.choices.first?.delta.content else {
-                            return nil
-                        }
-                        return content
-                    }
+            .compactMap { [weak self] data -> [String]? in
+                guard let self = self else { return nil }
+                return self.parseStreamingData(data)
             }
             .flatMap { chunks -> Publishers.Sequence<[String], Never> in
                 Publishers.Sequence(sequence: chunks)
@@ -95,11 +112,133 @@ class OpenAIService: ObservableObject {
             .eraseToAnyPublisher()
     }
 
-    func testConfiguration(_ configuration: APIConfiguration) async -> AnyPublisher<Bool, APIError> {
-        let publisher = await sendMessage("Hello", configuration: configuration)
-        return publisher
-            .map { _ in true }
-            .reduce(false) { _, _ in true }
+    private func buildRequest(
+        url: URL,
+        apiKey: String,
+        message: String,
+        configuration: APIConfiguration,
+        conversationHistory: [ChatMessage]
+    ) throws -> URLRequest {
+        var messages = conversationHistory
+        messages.append(ChatMessage(role: .user, content: message))
+
+        let requestBody: [String: Any] = [
+            "model": configuration.modelID,
+            "messages": messages.map { ["role": $0.role.rawValue, "content": $0.content] },
+            "stream": true
+        ]
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(Constants.contentTypeJSON, forHTTPHeaderField: "Content-Type")
+        request.setValue("\(Constants.authorizationHeaderPrefix)\(apiKey)", forHTTPHeaderField: "Authorization")
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        } catch {
+            throw APIError.invalidJSONResponse
+        }
+
+        return request
+    }
+
+    private func validateHTTPResponse(data: Data, response: URLResponse, modelID: String) throws -> Data {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse(statusCode: 0, message: "Invalid response")
+        }
+
+        switch httpResponse.statusCode {
+        case 200...299:
+            return data
+        case 401:
+            throw APIError.authenticationFailed("Invalid API key")
+        case 404:
+            throw APIError.modelNotFound(modelID)
+        case 429:
+            let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After") ?? "60"
+            throw APIError.rateLimitExceeded(retryAfter: TimeInterval(retryAfter) ?? 60)
+        default:
+            let message = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.invalidResponse(statusCode: httpResponse.statusCode, message: message)
+        }
+    }
+
+    private func parseStreamingData(_ data: Data) -> [String] {
+        let string = String(data: data, encoding: .utf8) ?? ""
+        return string.components(separatedBy: "\n")
+            .filter { $0.hasPrefix(Constants.streamDataPrefix) && $0 != Constants.streamEndMarker }
+            .compactMap { [weak self] line in
+                guard let self = self else { return nil }
+                return self.extractContentFromStreamLine(line)
+            }
+    }
+
+    private func extractContentFromStreamLine(_ line: String) -> String? {
+        let jsonString = String(line.dropFirst(Constants.streamDataPrefix.count))
+
+        guard let jsonData = jsonString.data(using: .utf8) else {
+            print("Warning: Failed to convert stream line to data: \(line)")
+            return nil
+        }
+
+        do {
+            let response = try JSONDecoder().decode(ChatResponse.self, from: jsonData)
+            return response.choices.first?.delta.content
+        } catch {
+            print("Warning: Failed to decode stream response: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    func testConfiguration(_ configuration: APIConfiguration) -> AnyPublisher<TestResult, APIError> {
+        let testMessage = "Hello! Please respond with 'Configuration test successful' to confirm connectivity."
+
+        return sendMessage(testMessage, configuration: configuration)
+            .collect()
+            .tryMap { responses -> TestResult in
+                let fullResponse = responses.joined()
+                let isSuccessful = !fullResponse.isEmpty
+                let responseTime = Date()
+
+                return TestResult(
+                    isSuccessful: isSuccessful,
+                    responseContent: fullResponse,
+                    responseTime: responseTime,
+                    configuration: configuration
+                )
+            }
+            .mapError { error in
+                if let apiError = error as? APIError {
+                    return apiError
+                } else {
+                    return APIError.streamingError(error.localizedDescription)
+                }
+            }
             .eraseToAnyPublisher()
+    }
+
+    // MARK: - Test Result
+    struct TestResult {
+        let isSuccessful: Bool
+        let responseContent: String
+        let responseTime: Date
+        let configuration: APIConfiguration
+
+        var summary: String {
+            if isSuccessful {
+                return "✅ Configuration '\(configuration.name)' tested successfully"
+            } else {
+                return "❌ Configuration '\(configuration.name)' test failed"
+            }
+        }
+    }
+
+    // MARK: - Cancellation Management
+    func cancelAllRequests() {
+        cancellables.removeAll()
+    }
+
+    deinit {
+        cancellables.removeAll()
     }
 }
