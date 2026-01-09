@@ -53,27 +53,37 @@ class ChatViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink(
                 receiveCompletion: { [weak self] completion in
+                    print("🔍 DEBUG: ChatViewModel received completion: \(completion)")
                     self?.isLoading = false
-                    if case .failure(let error) = completion {
+
+                    switch completion {
+                    case .finished:
+                        print("🔍 DEBUG: Stream finished successfully")
+                        // Save the completed assistant message
+                        if let lastMessage = self?.messages.last, !lastMessage.isFromUser {
+                            print("🔍 DEBUG: Saving final message with length: \(lastMessage.content.count)")
+                            self?.saveMessage(lastMessage)
+                        }
+                        HapticFeedback.messageReceived()
+
+                    case .failure(let error):
+                        print("🔍 DEBUG: Stream failed with error: \(error)")
                         self?.currentError = error
                         // Remove the loading message on error
                         self?.messages.removeLast()
                         HapticFeedback.errorOccurred()
-                    } else {
-                        // Save the completed assistant message
-                        if let lastMessage = self?.messages.last, !lastMessage.isFromUser {
-                            self?.saveMessage(lastMessage)
-                        }
-                        HapticFeedback.messageReceived()
                     }
                 },
                 receiveValue: { [weak self] content in
+                    print("🔍 DEBUG: ChatViewModel received chunk: '\(content)'")
                     guard let self = self, let lastIndex = self.messages.lastIndex(where: { !$0.isFromUser }) else {
+                        print("🔍 DEBUG: No assistant message found to update")
                         return
                     }
 
                     let lastMessage = self.messages[lastIndex]
                     let updatedContent = lastMessage.content + content
+                    print("🔍 DEBUG: Message updated: \(lastMessage.content.count) -> \(updatedContent.count) chars")
 
                     self.messages[lastIndex] = MessageViewModel(
                         id: lastMessage.id,
