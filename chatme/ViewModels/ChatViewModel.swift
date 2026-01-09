@@ -58,11 +58,13 @@ class ChatViewModel: ObservableObject {
                         self?.currentError = error
                         // Remove the loading message on error
                         self?.messages.removeLast()
+                        HapticFeedback.errorOccurred()
                     } else {
                         // Save the completed assistant message
                         if let lastMessage = self?.messages.last, !lastMessage.isFromUser {
                             self?.saveMessage(lastMessage)
                         }
+                        HapticFeedback.messageReceived()
                     }
                 },
                 receiveValue: { [weak self] content in

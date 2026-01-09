@@ -58,6 +58,7 @@ struct SettingsView: View {
                 // Chat Management Section
                 Section(header: Text("Chat Management")) {
                     Button(action: {
+                        HapticFeedback.lightImpact()
                         showingClearChatAlert = true
                     }) {
                         HStack {
@@ -149,6 +150,7 @@ struct SettingsView: View {
                         }
 
                         Button("Clear Error") {
+                            HapticFeedback.lightImpact()
                             configurationManager.clearError()
                         }
                         .font(.caption)
@@ -160,6 +162,7 @@ struct SettingsView: View {
                 #if DEBUG
                 Section(header: Text("Debug")) {
                     Button("Reload Configurations") {
+                        HapticFeedback.lightImpact()
                         Task {
                             await configurationManager.loadConfigurations()
                         }
@@ -174,12 +177,14 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
+                        HapticFeedback.lightImpact()
                         presentationMode.wrappedValue.dismiss()
                     }
                 }
             }
             .alert("Clear All Conversations", isPresented: $showingClearChatAlert) {
                 Button("Clear All", role: .destructive) {
+                    HapticFeedback.warning()
                     clearAllConversations()
                 }
                 Button("Cancel", role: .cancel) {}
