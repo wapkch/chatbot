@@ -75,7 +75,13 @@ class OpenAIService: ObservableObject {
             throw APIError.authenticationFailed("API key not found")
         }
 
-        guard let url = URL(string: "\(configuration.baseURL)/chat/completions") else {
+        // Use baseURL directly if it's a complete endpoint, otherwise append /chat/completions
+        let urlString = configuration.baseURL.contains("/external/") || configuration.baseURL.contains("/chat/completions") ?
+            configuration.baseURL : "\(configuration.baseURL)/chat/completions"
+
+        print("🔍 DEBUG: Constructed URL: \(urlString)")
+
+        guard let url = URL(string: urlString) else {
             throw APIError.invalidURL(configuration.baseURL)
         }
 
@@ -127,6 +133,9 @@ class OpenAIService: ObservableObject {
             "messages": messages.map { ["role": $0.role.rawValue, "content": $0.content] },
             "stream": true
         ]
+
+        print("🔍 DEBUG: Request body: \(requestBody)")
+        print("🔍 DEBUG: API Key (first 10 chars): \(String(apiKey.prefix(10)))...")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -191,23 +200,30 @@ class OpenAIService: ObservableObject {
     }
 
     func testConfiguration(_ configuration: APIConfiguration) -> AnyPublisher<TestResult, APIError> {
-        let testMessage = "Hello! Please respond with 'Configuration test successful' to confirm connectivity."
+        let testMessage = "tell me a joke" // Use the exact same message as working curl
+
+        print("🔍 DEBUG: Testing configuration '\(configuration.name)'")
+        print("🔍 DEBUG: Base URL: \(configuration.baseURL)")
+        print("🔍 DEBUG: Model ID: \(configuration.modelID)")
 
         return sendMessage(testMessage, configuration: configuration)
             .collect()
             .tryMap { responses -> TestResult in
                 let fullResponse = responses.joined()
+                print("🔍 DEBUG: Received response: \(fullResponse.prefix(100))...")
+
                 let isSuccessful = !fullResponse.isEmpty
                 let responseTime = Date()
 
                 return TestResult(
                     isSuccessful: isSuccessful,
-                    responseContent: fullResponse,
+                    responseContent: fullResponse.isEmpty ? "No response received" : fullResponse,
                     responseTime: responseTime,
                     configuration: configuration
                 )
             }
             .mapError { error in
+                print("🔍 DEBUG: Error occurred: \(error)")
                 if let apiError = error as? APIError {
                     return apiError
                 } else {
