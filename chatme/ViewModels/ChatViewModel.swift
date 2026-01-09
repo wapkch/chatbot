@@ -13,10 +13,13 @@ class ChatViewModel: ObservableObject {
     private let managedObjectContext: NSManagedObjectContext
     private var cancellables = Set<AnyCancellable>()
 
+    let conversationStore: ConversationStore
+
     init(configurationManager: ConfigurationManager, context: NSManagedObjectContext) {
         self.configurationManager = configurationManager
         self.managedObjectContext = context
         self.openAIService = OpenAIService(configurationManager: configurationManager)
+        self.conversationStore = ConversationStore(context: context)
         loadMessages()
     }
 

@@ -82,7 +82,10 @@ struct ChatView: View {
             showingError = error != nil
         }
         .sheet(isPresented: $showingSettings) {
-            SettingsView(configurationManager: configurationManager)
+            SettingsView(
+                configurationManager: configurationManager,
+                conversationStore: chatViewModel.conversationStore
+            )
         }
     }
 }
