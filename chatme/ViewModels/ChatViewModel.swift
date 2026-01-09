@@ -68,14 +68,12 @@ class ChatViewModel: ObservableObject {
                     }
                 },
                 receiveValue: { [weak self] content in
-                    print("🔍 UI: [\(Date())] Received content in ChatViewModel: '\(content)'")
                     guard let self = self, let lastIndex = self.messages.lastIndex(where: { !$0.isFromUser }) else {
                         return
                     }
 
                     let lastMessage = self.messages[lastIndex]
                     let updatedContent = lastMessage.content + content
-                    print("🔍 UI: [\(Date())] Updating message: '\(lastMessage.content)' + '\(content)' = '\(updatedContent)'")
 
                     self.messages[lastIndex] = MessageViewModel(
                         id: lastMessage.id,
@@ -83,8 +81,6 @@ class ChatViewModel: ObservableObject {
                         isFromUser: false,
                         timestamp: lastMessage.timestamp
                     )
-
-                    print("🔍 UI: [\(Date())] Message updated, total content length: \(updatedContent.count)")
                 }
             )
             .store(in: &cancellables)

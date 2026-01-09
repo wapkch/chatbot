@@ -198,11 +198,7 @@ class OpenAIService: ObservableObject {
 
         return filteredLines.compactMap { [weak self] line in
             guard let self = self else { return nil }
-            let content = self.extractContentFromStreamLine(line)
-            if let content = content, !content.isEmpty {
-                print("🔍 STREAM: [\(Date())] Extracted content: '\(content)'")
-            }
-            return content
+            return self.extractContentFromStreamLine(line)
         }
     }
 
