@@ -42,6 +42,14 @@ struct ChatView: View {
                             }
                         }
                     }
+                    // Also respond to message content changes (for streaming)
+                    .onChange(of: chatViewModel.messages.last?.content ?? "") { _ in
+                        if let lastMessage = chatViewModel.messages.last {
+                            withAnimation(.easeInOut(duration: 0.1)) {
+                                proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                            }
+                        }
+                    }
                     .onChange(of: chatViewModel.isLoading) { _ in
                         // Scroll when loading state changes
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {

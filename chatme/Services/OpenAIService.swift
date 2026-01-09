@@ -174,12 +174,21 @@ class OpenAIService: ObservableObject {
 
     private func parseStreamingData(_ data: Data) -> [String] {
         let string = String(data: data, encoding: .utf8) ?? ""
-        return string.components(separatedBy: "\n")
-            .filter { $0.hasPrefix(Constants.streamDataPrefix) && $0 != Constants.streamEndMarker }
-            .compactMap { [weak self] line in
-                guard let self = self else { return nil }
-                return self.extractContentFromStreamLine(line)
-            }
+
+        // DEBUG: Log raw streaming data
+        print("🔍 DEBUG: Raw streaming data: \(string.prefix(200))...")
+
+        let lines = string.components(separatedBy: "\n")
+        print("🔍 DEBUG: Split into \(lines.count) lines")
+
+        let filteredLines = lines.filter { $0.hasPrefix(Constants.streamDataPrefix) && $0 != Constants.streamEndMarker }
+        print("🔍 DEBUG: After filtering: \(filteredLines.count) valid lines")
+
+        return filteredLines.compactMap { [weak self] line in
+            guard let self = self else { return nil }
+            print("🔍 DEBUG: Processing line: \(line.prefix(100))...")
+            return self.extractContentFromStreamLine(line)
+        }
     }
 
     private func extractContentFromStreamLine(_ line: String) -> String? {
