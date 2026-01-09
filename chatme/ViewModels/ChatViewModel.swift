@@ -53,13 +53,16 @@ class ChatViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink(
                 receiveCompletion: { [weak self] completion in
+                    print("🔍 DEBUG: ChatViewModel received completion: \(completion)")
                     self?.isLoading = false
                     if case .failure(let error) = completion {
+                        print("🔍 DEBUG: Stream failed with error: \(error)")
                         self?.currentError = error
                         // Remove the loading message on error
                         self?.messages.removeLast()
                         HapticFeedback.errorOccurred()
                     } else {
+                        print("🔍 DEBUG: Stream completed successfully")
                         // Save the completed assistant message
                         if let lastMessage = self?.messages.last, !lastMessage.isFromUser {
                             self?.saveMessage(lastMessage)
@@ -68,12 +71,15 @@ class ChatViewModel: ObservableObject {
                     }
                 },
                 receiveValue: { [weak self] content in
+                    print("🔍 DEBUG: ChatViewModel received content chunk: '\(content)'")
                     guard let self = self, let lastIndex = self.messages.lastIndex(where: { !$0.isFromUser }) else {
+                        print("🔍 DEBUG: No assistant message found to update")
                         return
                     }
 
                     let lastMessage = self.messages[lastIndex]
                     let updatedContent = lastMessage.content + content
+                    print("🔍 DEBUG: Updated message length: \(lastMessage.content.count) -> \(updatedContent.count)")
 
                     self.messages[lastIndex] = MessageViewModel(
                         id: lastMessage.id,

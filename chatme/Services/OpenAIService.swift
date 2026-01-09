@@ -22,6 +22,8 @@ class OpenAIService: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let configurationManager: ConfigurationManager
     private let urlSession: URLSessionProtocol
+    // Buffer for accumulating incomplete SSE lines
+    private var streamBuffer = ""
 
     // MARK: - Initializers
     init(configurationManager: ConfigurationManager? = nil, urlSession: URLSessionProtocol = URLSession.shared) {
@@ -70,6 +72,10 @@ class OpenAIService: ObservableObject {
         conversationHistory: [ChatMessage]
     ) async throws -> AnyPublisher<String, APIError> {
 
+        // Reset buffer for new stream
+        streamBuffer = ""
+        print("🔍 DEBUG: Starting new stream, buffer reset")
+
         // Get API key from keychain
         guard let apiKey = await configurationManager.getAPIKey(for: configuration) else {
             throw APIError.authenticationFailed("API key not found")
@@ -99,16 +105,33 @@ class OpenAIService: ObservableObject {
                 guard let self = self else {
                     throw APIError.streamingError("Service deallocated")
                 }
+                print("🔍 DEBUG: Received data chunk: \(data.count) bytes")
                 return try self.validateHTTPResponse(data: data, response: response, modelID: configuration.modelID)
             }
             .compactMap { [weak self] data -> [String]? in
                 guard let self = self else { return nil }
-                return self.parseStreamingData(data)
+                let chunks = self.parseStreamingData(data)
+                if chunks.isEmpty {
+                    print("🔍 DEBUG: No valid chunks extracted from data")
+                } else {
+                    print("🔍 DEBUG: Extracted \(chunks.count) chunks: \(chunks)")
+                }
+                return chunks
             }
             .flatMap { chunks -> Publishers.Sequence<[String], Never> in
-                Publishers.Sequence(sequence: chunks)
+                print("🔍 DEBUG: Publishing \(chunks.count) chunks to subscribers")
+                return Publishers.Sequence(sequence: chunks)
             }
+            .handleEvents(
+                receiveOutput: { chunk in
+                    print("🔍 DEBUG: Emitting chunk to subscriber: '\(chunk)'")
+                },
+                receiveCompletion: { completion in
+                    print("🔍 DEBUG: Stream completed: \(completion)")
+                }
+            )
             .mapError { error in
+                print("🔍 DEBUG: Stream error occurred: \(error)")
                 if let apiError = error as? APIError {
                     return apiError
                 } else {
@@ -173,20 +196,29 @@ class OpenAIService: ObservableObject {
     }
 
     private func parseStreamingData(_ data: Data) -> [String] {
-        let string = String(data: data, encoding: .utf8) ?? ""
+        let newString = String(data: data, encoding: .utf8) ?? ""
 
-        // DEBUG: Log raw streaming data
-        print("🔍 DEBUG: Raw streaming data: \(string.prefix(200))...")
+        // Append new data to buffer
+        streamBuffer += newString
 
-        let lines = string.components(separatedBy: "\n")
-        print("🔍 DEBUG: Split into \(lines.count) lines")
+        print("🔍 DEBUG: Added \(newString.count) chars to buffer, total buffer size: \(streamBuffer.count)")
 
-        let filteredLines = lines.filter { $0.hasPrefix(Constants.streamDataPrefix) && $0 != Constants.streamEndMarker }
-        print("🔍 DEBUG: After filtering: \(filteredLines.count) valid lines")
+        // Split by lines, keeping incomplete last line in buffer
+        let lines = streamBuffer.components(separatedBy: "\n")
+        var completeLines = Array(lines.dropLast()) // All lines except the potentially incomplete last one
+
+        // Keep the last line in buffer (it might be incomplete)
+        streamBuffer = lines.last ?? ""
+
+        print("🔍 DEBUG: Processing \(completeLines.count) complete lines, buffer contains: '\(streamBuffer.prefix(50))...'")
+
+        // Process only complete lines
+        let filteredLines = completeLines.filter { $0.hasPrefix(Constants.streamDataPrefix) && $0 != Constants.streamEndMarker }
+        print("🔍 DEBUG: After filtering: \(filteredLines.count) valid SSE lines")
 
         return filteredLines.compactMap { [weak self] line in
             guard let self = self else { return nil }
-            print("🔍 DEBUG: Processing line: \(line.prefix(100))...")
+            print("🔍 DEBUG: Processing SSE line: \(line.prefix(100))...")
             return self.extractContentFromStreamLine(line)
         }
     }
