@@ -6,7 +6,6 @@ struct ConfigurationListView: View {
 
     // UI State
     @State private var showingAddConfiguration = false
-    @State private var showingEditConfiguration = false
     @State private var configurationToEdit: APIConfiguration?
     @State private var configurationToDelete: APIConfiguration?
     @State private var showingDeleteAlert = false
@@ -48,13 +47,11 @@ struct ConfigurationListView: View {
             .sheet(isPresented: $showingAddConfiguration) {
                 ConfigurationEditView(configurationManager: configurationManager)
             }
-            .sheet(isPresented: $showingEditConfiguration) {
-                if let config = configurationToEdit {
-                    ConfigurationEditView(
-                        configurationManager: configurationManager,
-                        configuration: config
-                    )
-                }
+            .sheet(item: $configurationToEdit) { config in
+                ConfigurationEditView(
+                    configurationManager: configurationManager,
+                    configuration: config
+                )
             }
             .alert("Delete Configuration", isPresented: $showingDeleteAlert) {
                 Button("Delete", role: .destructive) {
@@ -89,7 +86,6 @@ struct ConfigurationListView: View {
 
     private func editConfiguration(_ configuration: APIConfiguration) {
         configurationToEdit = configuration
-        showingEditConfiguration = true
     }
 
     private func deleteConfiguration(_ configuration: APIConfiguration) {
