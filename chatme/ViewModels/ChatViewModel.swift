@@ -53,17 +53,21 @@ class ChatViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink(
                 receiveCompletion: { [weak self] completion in
+                    print("🔍 DEBUG: ChatViewModel completion: \(completion)")
                     self?.isLoading = false
 
                     switch completion {
                     case .finished:
+                        print("🔍 DEBUG: Stream finished successfully")
                         // Save the completed assistant message
                         if let lastMessage = self?.messages.last, !lastMessage.isFromUser {
+                            print("🔍 DEBUG: Saving final message: '\(lastMessage.content.suffix(50))...'")
                             self?.saveMessage(lastMessage)
                         }
                         HapticFeedback.messageReceived()
 
                     case .failure(let error):
+                        print("🔍 DEBUG: Stream failed: \(error)")
                         self?.currentError = error
                         // Remove the loading message on error
                         self?.messages.removeLast()
@@ -71,10 +75,13 @@ class ChatViewModel: ObservableObject {
                     }
                 },
                 receiveValue: { [weak self] content in
+                    print("🔍 DEBUG: ChatViewModel received: '\(content)'")
                     guard let self = self, let lastIndex = self.messages.lastIndex(where: { !$0.isFromUser }) else {
+                        print("🔍 DEBUG: No assistant message to update")
                         return
                     }
 
+                    print("🔍 DEBUG: Animating text at index \(lastIndex)")
                     // For smooth typing effect, simulate character-by-character display
                     self.animateText(content, at: lastIndex)
                 }
@@ -129,13 +136,15 @@ class ChatViewModel: ObservableObject {
 
     private func animateText(_ newContent: String, at index: Int) {
         let lastMessage = messages[index]
-        let currentContent = lastMessage.content
+        let baseContent = lastMessage.content  // Content before this chunk
         let characters = Array(newContent)
 
         // Add characters one by one with a small delay for typing effect
-        for (i, character) in characters.enumerated() {
+        for (i, _) in characters.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.03) {
-                let updatedContent = currentContent + String(characters[0...i])
+                // Add characters progressively: base + partial new content
+                let partialNewContent = String(characters[0...i])
+                let updatedContent = baseContent + partialNewContent
 
                 self.messages[index] = MessageViewModel(
                     id: lastMessage.id,

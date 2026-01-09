@@ -103,6 +103,14 @@ class OpenAIService: ObservableObject {
         )
 
         return urlSession.dataTaskPublisher(for: request)
+            .handleEvents(
+                receiveOutput: { data, response in
+                    print("🔍 DEBUG: Received \(data.count) bytes")
+                },
+                receiveCompletion: { completion in
+                    print("🔍 DEBUG: URLSession completed: \(completion)")
+                }
+            )
             .tryMap { [weak self] data, response -> Data in
                 guard let self = self else {
                     throw APIError.streamingError("Service deallocated")
@@ -112,13 +120,25 @@ class OpenAIService: ObservableObject {
             .compactMap { [weak self] data -> [String]? in
                 guard let self = self else { return nil }
                 let chunks = self.parseStreamingData(data)
+                if !chunks.isEmpty {
+                    print("🔍 DEBUG: Extracted chunks: \(chunks)")
+                }
                 return chunks.isEmpty ? nil : chunks
             }
             .flatMap { chunks -> Publishers.Sequence<[String], Never> in
-                // Simply return chunks as-is for now - no character splitting
-                Publishers.Sequence(sequence: chunks)
+                print("🔍 DEBUG: Publishing \(chunks.count) chunks")
+                return Publishers.Sequence(sequence: chunks)
             }
+            .handleEvents(
+                receiveOutput: { chunk in
+                    print("🔍 DEBUG: Emitting chunk: '\(chunk)'")
+                },
+                receiveCompletion: { completion in
+                    print("🔍 DEBUG: Stream completed: \(completion)")
+                }
+            )
             .mapError { error in
+                print("🔍 DEBUG: Stream error: \(error)")
                 if let apiError = error as? APIError {
                     return apiError
                 } else {
