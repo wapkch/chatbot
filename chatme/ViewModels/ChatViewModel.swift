@@ -76,23 +76,18 @@ class ChatViewModel: ObservableObject {
                         return
                     }
 
+                    // CRITICAL FIX: Do the update synchronously to avoid race conditions
                     let lastMessage = self.messages[lastIndex]
                     let updatedContent = lastMessage.content + content
 
                     print("🔍 STREAMING: Updating UI from '\(lastMessage.content)' to '\(updatedContent)'")
 
-                    // Force UI update with slight delay to ensure SwiftUI processes it
-                    DispatchQueue.main.async {
-                        self.messages[lastIndex] = MessageViewModel(
-                            id: lastMessage.id,
-                            content: updatedContent,
-                            isFromUser: false,
-                            timestamp: lastMessage.timestamp
-                        )
-
-                        // Force view refresh
-                        self.objectWillChange.send()
-                    }
+                    self.messages[lastIndex] = MessageViewModel(
+                        id: lastMessage.id,
+                        content: updatedContent,
+                        isFromUser: false,
+                        timestamp: lastMessage.timestamp
+                    )
                 }
             )
             .store(in: &cancellables)

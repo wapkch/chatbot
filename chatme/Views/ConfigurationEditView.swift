@@ -12,6 +12,7 @@ struct ConfigurationEditView: View {
     @State private var modelID: String = ""
     @State private var apiKey: String = ""
     @State private var isDefault: Bool = false
+    @State private var systemPrompts: [String] = [""]
 
     // UI State
     @State private var isLoading = false
@@ -80,6 +81,54 @@ struct ConfigurationEditView: View {
 
                     if !isEditing {
                         Toggle("Set as Default", isOn: $isDefault)
+                    }
+                }
+
+                Section(header: Text("System Prompts")) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Define the AI's behavior and personality with multiple prompts")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        ForEach(systemPrompts.indices, id: \.self) { index in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text("Prompt \(index + 1)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+
+                                    Spacer()
+
+                                    if systemPrompts.count > 1 {
+                                        Button(action: {
+                                            systemPrompts.remove(at: index)
+                                        }) {
+                                            Image(systemName: "minus.circle.fill")
+                                                .foregroundColor(.red)
+                                        }
+                                    }
+                                }
+
+                                TextEditor(text: Binding(
+                                    get: { systemPrompts[index] },
+                                    set: { systemPrompts[index] = $0 }
+                                ))
+                                .frame(minHeight: 80, maxHeight: 150)
+                                .padding(4)
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(8)
+                            }
+                        }
+
+                        Button(action: {
+                            systemPrompts.append("")
+                        }) {
+                            HStack {
+                                Image(systemName: "plus.circle.fill")
+                                Text("Add System Prompt")
+                            }
+                            .foregroundColor(.blue)
+                        }
                     }
                 }
 
@@ -157,6 +206,7 @@ struct ConfigurationEditView: View {
             baseURL = "https://api.openai.com/v1"
             modelID = "gpt-3.5-turbo"
             apiKey = ""
+            systemPrompts = [""]
             isDefault = configurationManager.configurations.isEmpty
             return
         }
@@ -165,6 +215,7 @@ struct ConfigurationEditView: View {
         name = config.name
         baseURL = config.baseURL
         modelID = config.modelID
+        systemPrompts = config.systemPrompts.isEmpty ? [""] : config.systemPrompts
         isDefault = config.isDefault
 
         // Load API key asynchronously
@@ -189,7 +240,8 @@ struct ConfigurationEditView: View {
         let testConfig = APIConfiguration(
             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
             baseURL: baseURL.trimmingCharacters(in: .whitespacesAndNewlines),
-            modelID: modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+            modelID: modelID.trimmingCharacters(in: .whitespacesAndNewlines),
+            systemPrompts: systemPrompts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         )
 
         // Temporarily store API key for testing
@@ -243,6 +295,7 @@ struct ConfigurationEditView: View {
         let trimmedBaseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedModelID = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSystemPrompts = systemPrompts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
 
         Task {
             do {
@@ -253,7 +306,8 @@ struct ConfigurationEditView: View {
                         name: trimmedName,
                         baseURL: trimmedBaseURL,
                         modelID: trimmedModelID,
-                        isDefault: existingConfig.isDefault
+                        isDefault: existingConfig.isDefault,
+                        systemPrompts: trimmedSystemPrompts
                     )
 
                     // Only update API key if it's different from placeholder
@@ -265,7 +319,8 @@ struct ConfigurationEditView: View {
                         name: trimmedName,
                         baseURL: trimmedBaseURL,
                         modelID: trimmedModelID,
-                        isDefault: isDefault
+                        isDefault: isDefault,
+                        systemPrompts: trimmedSystemPrompts
                     )
 
                     try await configurationManager.addConfiguration(newConfig, apiKey: trimmedAPIKey)

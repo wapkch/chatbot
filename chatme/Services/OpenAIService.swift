@@ -1,13 +1,6 @@
 import Foundation
 import Combine
 
-// MARK: - Protocol for dependency injection
-protocol URLSessionProtocol {
-    func dataTaskPublisher(for request: URLRequest) -> URLSession.DataTaskPublisher
-}
-
-extension URLSession: URLSessionProtocol {}
-
 @MainActor
 class OpenAIService: ObservableObject {
     // MARK: - Constants
@@ -19,16 +12,12 @@ class OpenAIService: ObservableObject {
     }
 
     // MARK: - Properties
-    private var cancellables = Set<AnyCancellable>()
     private let configurationManager: ConfigurationManager
-    private let urlSession: URLSessionProtocol
-    // Buffer for accumulating incomplete SSE lines
-    private var streamBuffer = ""
+    private var currentTask: Task<Void, Never>?
 
     // MARK: - Initializers
-    init(configurationManager: ConfigurationManager? = nil, urlSession: URLSessionProtocol = URLSession.shared) {
+    init(configurationManager: ConfigurationManager? = nil) {
         self.configurationManager = configurationManager ?? ConfigurationManager()
-        self.urlSession = urlSession
     }
 
     // MARK: - Public Methods
@@ -37,94 +26,104 @@ class OpenAIService: ObservableObject {
         configuration: APIConfiguration,
         conversationHistory: [ChatMessage] = []
     ) -> AnyPublisher<String, APIError> {
+        let subject = PassthroughSubject<String, APIError>()
 
-        // Reset buffer for new stream
-        streamBuffer = ""
+        currentTask?.cancel()
+        currentTask = Task {
+            do {
+                // Get API key from keychain
+                guard let apiKey = await configurationManager.getAPIKey(for: configuration) else {
+                    subject.send(completion: .failure(APIError.authenticationFailed("API key not found")))
+                    return
+                }
 
-        return Deferred {
-            Future<AnyPublisher<String, APIError>, APIError> { [weak self] promise in
-                Task {
-                    guard let self = self else {
-                        promise(.failure(APIError.streamingError("Service deallocated")))
-                        return
-                    }
+                // Build URL
+                let urlString = configuration.baseURL.contains("/external/") || configuration.baseURL.contains("/chat/completions") ?
+                    configuration.baseURL : "\(configuration.baseURL)/chat/completions"
 
-                    do {
-                        let publisher = try await self.createStreamingPublisher(
-                            message: message,
-                            configuration: configuration,
-                            conversationHistory: conversationHistory
-                        )
-                        promise(.success(publisher))
-                    } catch let error as APIError {
-                        promise(.failure(error))
-                    } catch {
-                        promise(.failure(APIError.streamingError(error.localizedDescription)))
+                guard let url = URL(string: urlString) else {
+                    subject.send(completion: .failure(APIError.invalidURL(configuration.baseURL)))
+                    return
+                }
+
+                // Build request
+                let request = try self.buildRequest(
+                    url: url,
+                    apiKey: apiKey,
+                    message: message,
+                    configuration: configuration,
+                    conversationHistory: conversationHistory
+                )
+
+                // Use URLSession.bytes for true streaming
+                let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    subject.send(completion: .failure(APIError.invalidResponse(statusCode: 0, message: "Invalid response")))
+                    return
+                }
+
+                // Validate status code
+                switch httpResponse.statusCode {
+                case 200...299:
+                    break
+                case 401:
+                    subject.send(completion: .failure(APIError.authenticationFailed("Invalid API key")))
+                    return
+                case 404:
+                    subject.send(completion: .failure(APIError.modelNotFound(configuration.modelID)))
+                    return
+                case 429:
+                    subject.send(completion: .failure(APIError.rateLimitExceeded(retryAfter: 60)))
+                    return
+                default:
+                    subject.send(completion: .failure(APIError.invalidResponse(statusCode: httpResponse.statusCode, message: "Unknown error")))
+                    return
+                }
+
+                // Read lines and parse SSE data
+                for try await line in bytes.lines {
+                    if Task.isCancelled { break }
+
+                    if let content = self.parseSSELine(line) {
+                        subject.send(content)
                     }
                 }
+
+                subject.send(completion: .finished)
+            } catch let error as APIError {
+                subject.send(completion: .failure(error))
+            } catch {
+                subject.send(completion: .failure(APIError.streamingError(error.localizedDescription)))
             }
-            .flatMap { publisher in
-                publisher
-            }
-            .eraseToAnyPublisher()
         }
-        .eraseToAnyPublisher()
+
+        return subject.eraseToAnyPublisher()
     }
 
     // MARK: - Private Methods
-    private func createStreamingPublisher(
-        message: String,
-        configuration: APIConfiguration,
-        conversationHistory: [ChatMessage]
-    ) async throws -> AnyPublisher<String, APIError> {
 
-        // Get API key from keychain
-        guard let apiKey = await configurationManager.getAPIKey(for: configuration) else {
-            throw APIError.authenticationFailed("API key not found")
+    private func parseSSELine(_ line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmed.isEmpty,
+              trimmed != Constants.streamEndMarker,
+              trimmed.hasPrefix(Constants.streamDataPrefix) else {
+            return nil
         }
 
-        // Use baseURL directly if it's a complete endpoint, otherwise append /chat/completions
-        let urlString = configuration.baseURL.contains("/external/") || configuration.baseURL.contains("/chat/completions") ?
-            configuration.baseURL : "\(configuration.baseURL)/chat/completions"
+        let jsonString = String(trimmed.dropFirst(Constants.streamDataPrefix.count))
 
-        print("🔍 DEBUG: Constructed URL: \(urlString)")
-
-        guard let url = URL(string: urlString) else {
-            throw APIError.invalidURL(configuration.baseURL)
+        guard let jsonData = jsonString.data(using: .utf8) else {
+            return nil
         }
 
-        // Build request
-        let request = try buildRequest(
-            url: url,
-            apiKey: apiKey,
-            message: message,
-            configuration: configuration,
-            conversationHistory: conversationHistory
-        )
-
-        return urlSession.dataTaskPublisher(for: request)
-            .tryMap { [weak self] data, response -> Data in
-                guard let self = self else {
-                    throw APIError.streamingError("Service deallocated")
-                }
-                return try self.validateHTTPResponse(data: data, response: response, modelID: configuration.modelID)
-            }
-            .compactMap { [weak self] data -> [String]? in
-                guard let self = self else { return nil }
-                let chunks = self.parseStreamingData(data)
-                return chunks.isEmpty ? nil : chunks
-            }
-            .flatMap { chunks -> Publishers.Sequence<[String], Never> in
-                Publishers.Sequence(sequence: chunks)
-            }
-            .mapError { error in
-                if let apiError = error as? APIError {
-                    return apiError
-                } else {
-                    return APIError.streamingError(error.localizedDescription)
-                }
-            }
-            .eraseToAnyPublisher()
+        do {
+            let response = try JSONDecoder().decode(ChatResponse.self, from: jsonData)
+            return response.choices.first?.delta.content
+        } catch {
+            return nil
+        }
     }
 
     private func buildRequest(
@@ -134,7 +133,24 @@ class OpenAIService: ObservableObject {
         configuration: APIConfiguration,
         conversationHistory: [ChatMessage]
     ) throws -> URLRequest {
-        var messages = conversationHistory
+        var messages: [ChatMessage] = []
+
+        // Add system prompts as the first messages if they exist and not already in history
+        let validSystemPrompts = configuration.systemPrompts.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if !validSystemPrompts.isEmpty {
+            let hasSystemMessages = conversationHistory.first?.role == .system
+            if !hasSystemMessages {
+                for systemPrompt in validSystemPrompts {
+                    let systemMessage = ChatMessage(role: .system, content: systemPrompt)
+                    messages.append(systemMessage)
+                }
+            }
+        }
+
+        // Add conversation history
+        messages.append(contentsOf: conversationHistory)
+
+        // Add the current user message
         messages.append(ChatMessage(role: .user, content: message))
 
         let requestBody: [String: Any] = [
@@ -142,9 +158,6 @@ class OpenAIService: ObservableObject {
             "messages": messages.map { ["role": $0.role.rawValue, "content": $0.content] },
             "stream": true
         ]
-
-        print("🔍 DEBUG: Request body: \(requestBody)")
-        print("🔍 DEBUG: API Key (first 10 chars): \(String(apiKey.prefix(10)))...")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -160,87 +173,13 @@ class OpenAIService: ObservableObject {
         return request
     }
 
-    private func validateHTTPResponse(data: Data, response: URLResponse, modelID: String) throws -> Data {
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse(statusCode: 0, message: "Invalid response")
-        }
-
-        switch httpResponse.statusCode {
-        case 200...299:
-            return data
-        case 401:
-            throw APIError.authenticationFailed("Invalid API key")
-        case 404:
-            throw APIError.modelNotFound(modelID)
-        case 429:
-            let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After") ?? "60"
-            throw APIError.rateLimitExceeded(retryAfter: TimeInterval(retryAfter) ?? 60)
-        default:
-            let message = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw APIError.invalidResponse(statusCode: httpResponse.statusCode, message: message)
-        }
-    }
-
-    private func parseStreamingData(_ data: Data) -> [String] {
-        let newString = String(data: data, encoding: .utf8) ?? ""
-
-        // Append new data to buffer
-        streamBuffer += newString
-
-        // Split by lines, keeping incomplete last line in buffer
-        let lines = streamBuffer.components(separatedBy: "\n")
-        var completeLines = Array(lines.dropLast()) // All lines except the potentially incomplete last one
-
-        // Keep the last line in buffer (it might be incomplete)
-        streamBuffer = lines.last ?? ""
-
-        // Check for stream end marker
-        let hasEndMarker = completeLines.contains(Constants.streamEndMarker)
-        if hasEndMarker {
-            // If we have [DONE] and buffer content, process the buffer as final line
-            if !streamBuffer.isEmpty && streamBuffer.hasPrefix(Constants.streamDataPrefix) && streamBuffer != Constants.streamEndMarker {
-                completeLines.append(streamBuffer)
-                streamBuffer = "" // Clear buffer after processing
-            }
-        }
-
-        let filteredLines = completeLines.filter { $0.hasPrefix(Constants.streamDataPrefix) && $0 != Constants.streamEndMarker }
-
-        return filteredLines.compactMap { [weak self] line in
-            guard let self = self else { return nil }
-            return self.extractContentFromStreamLine(line)
-        }
-    }
-
-    private func extractContentFromStreamLine(_ line: String) -> String? {
-        let jsonString = String(line.dropFirst(Constants.streamDataPrefix.count))
-
-        guard let jsonData = jsonString.data(using: .utf8) else {
-            print("Warning: Failed to convert stream line to data: \(line)")
-            return nil
-        }
-
-        do {
-            let response = try JSONDecoder().decode(ChatResponse.self, from: jsonData)
-            return response.choices.first?.delta.content
-        } catch {
-            print("Warning: Failed to decode stream response: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
     func testConfiguration(_ configuration: APIConfiguration) -> AnyPublisher<TestResult, APIError> {
-        let testMessage = "tell me a joke" // Use the exact same message as working curl
-
-        print("🔍 DEBUG: Testing configuration '\(configuration.name)'")
-        print("🔍 DEBUG: Base URL: \(configuration.baseURL)")
-        print("🔍 DEBUG: Model ID: \(configuration.modelID)")
+        let testMessage = "tell me a joke"
 
         return sendMessage(testMessage, configuration: configuration)
             .collect()
             .tryMap { responses -> TestResult in
                 let fullResponse = responses.joined()
-                print("🔍 DEBUG: Received response: \(fullResponse.prefix(100))...")
 
                 let isSuccessful = !fullResponse.isEmpty
                 let responseTime = Date()
@@ -253,7 +192,6 @@ class OpenAIService: ObservableObject {
                 )
             }
             .mapError { error in
-                print("🔍 DEBUG: Error occurred: \(error)")
                 if let apiError = error as? APIError {
                     return apiError
                 } else {
@@ -281,10 +219,11 @@ class OpenAIService: ObservableObject {
 
     // MARK: - Cancellation Management
     func cancelAllRequests() {
-        cancellables.removeAll()
+        currentTask?.cancel()
+        currentTask = nil
     }
 
     deinit {
-        cancellables.removeAll()
+        currentTask?.cancel()
     }
 }

@@ -84,14 +84,15 @@ struct MessageBubbleView: View {
                         .clipShape(messageBubbleShape)
                         .textSelection(.enabled)
                 } else {
-                    // Assistant messages: Optimized Markdown formatted
-                    MarkdownText(markdown: message.content)
+                    // Assistant messages: Plain text for debugging
+                    Text(message.content)
                         .font(.messageFont)
                         .foregroundColor(textColor)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                         .background(messageBubbleColor)
                         .clipShape(messageBubbleShape)
+                        .textSelection(.enabled)
                 }
             }
         }

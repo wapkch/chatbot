@@ -8,6 +8,7 @@ struct APIConfiguration: Codable, Identifiable, Hashable {
     var baseURL: String
     var modelID: String
     var isDefault: Bool = false
+    var systemPrompts: [String] = []
 
     // MARK: - Constants
     struct Constants {
@@ -18,17 +19,18 @@ struct APIConfiguration: Codable, Identifiable, Hashable {
     }
 
     // MARK: - Initializers
-    init(id: UUID = UUID(), name: String, baseURL: String, modelID: String, isDefault: Bool = false) {
+    init(id: UUID = UUID(), name: String, baseURL: String, modelID: String, isDefault: Bool = false, systemPrompts: [String] = []) {
         self.id = id
         self.name = name
         self.baseURL = baseURL
         self.modelID = modelID
         self.isDefault = isDefault
+        self.systemPrompts = systemPrompts.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 
     // MARK: - Codable Implementation
     enum CodingKeys: String, CodingKey {
-        case id, name, baseURL, modelID, isDefault
+        case id, name, baseURL, modelID, isDefault, systemPrompt, systemPrompts
     }
 
     init(from decoder: Decoder) throws {
@@ -50,6 +52,15 @@ struct APIConfiguration: Codable, Identifiable, Hashable {
         self.baseURL = try container.decode(String.self, forKey: .baseURL)
         self.modelID = try container.decode(String.self, forKey: .modelID)
         self.isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
+
+        // Support backward compatibility: try systemPrompts first, fall back to systemPrompt
+        if let prompts = try? container.decodeIfPresent([String].self, forKey: .systemPrompts) {
+            self.systemPrompts = prompts.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        } else if let prompt = try? container.decodeIfPresent(String.self, forKey: .systemPrompt), !prompt.isEmpty {
+            self.systemPrompts = [prompt]
+        } else {
+            self.systemPrompts = []
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -59,6 +70,7 @@ struct APIConfiguration: Codable, Identifiable, Hashable {
         try container.encode(baseURL, forKey: .baseURL)
         try container.encode(modelID, forKey: .modelID)
         try container.encode(isDefault, forKey: .isDefault)
+        try container.encode(systemPrompts, forKey: .systemPrompts)
     }
 
     // MARK: - Hashable Implementation
