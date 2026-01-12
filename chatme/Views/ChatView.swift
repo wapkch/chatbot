@@ -4,92 +4,132 @@ import CoreData
 struct ChatView: View {
     @StateObject private var chatViewModel: ChatViewModel
     @StateObject private var configurationManager = ConfigurationManager()
+    @StateObject private var navigationManager: NavigationManager
     @Environment(\.managedObjectContext) private var viewContext
     @State private var showingSettings = false
     @State private var showingError = false
 
     init() {
         let configManager = ConfigurationManager()
+        let conversationStore = ConversationStore(context: PersistenceController.shared.container.viewContext)
+
         _chatViewModel = StateObject(wrappedValue: ChatViewModel(
             configurationManager: configManager,
             context: PersistenceController.shared.container.viewContext
         ))
         _configurationManager = StateObject(wrappedValue: configManager)
+        _navigationManager = StateObject(wrappedValue: NavigationManager(conversationStore: conversationStore))
     }
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Messages
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(chatViewModel.messages) { message in
-                                MessageBubbleView(message: message)
-                                    .id(message.id)
-                            }
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                // 主聊天界面
+                chatContentView
+                    .offset(x: navigationManager.isSidebarOpen ? geometry.size.width * 0.75 : 0)
+                    .disabled(navigationManager.isSidebarOpen)
 
-                            // Add some bottom padding for better scrolling
-                            Color.clear.frame(height: 20)
+                // 侧边栏（暂时使用占位符）
+                if navigationManager.isSidebarOpen {
+                    Rectangle()
+                        .fill(Color(.systemGroupedBackground))
+                        .frame(width: geometry.size.width * 0.75)
+                        .overlay(
+                            VStack {
+                                Text("会话列表")
+                                    .font(.title2)
+                                    .padding()
+
+                                Spacer()
+
+                                Button("关闭") {
+                                    navigationManager.closeSidebar()
+                                }
+                                .padding()
+                            }
+                        )
+                        .transition(.move(edge: .leading))
+                }
+            }
+        }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+    }
+
+    // MARK: - Chat Content View
+    private var chatContentView: some View {
+        VStack(spacing: 0) {
+            // 自定义导航栏
+            ChatNavigationBar(
+                title: configurationManager.activeConfiguration?.modelID ?? "ChatMe",
+                onToggleSidebar: {
+                    HapticFeedback.lightImpact()
+                    navigationManager.toggleSidebar()
+                },
+                onNewChat: {
+                    HapticFeedback.lightImpact()
+                    startNewConversation()
+                }
+            )
+
+            Divider()
+                .background(Color(.separator))
+
+            // Messages
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(chatViewModel.messages) { message in
+                            MessageBubbleView(message: message)
+                                .id(message.id)
                         }
-                        .padding(.top)
+
+                        // Add some bottom padding for better scrolling
+                        Color.clear.frame(height: 20)
                     }
-                    .background(Color.chatBackground)
-                    .onChange(of: chatViewModel.messages.count) { _ in
+                    .padding(.top)
+                }
+                .background(Color.chatBackground)
+                .onChange(of: chatViewModel.messages.count) { _ in
+                    if let lastMessage = chatViewModel.messages.last {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                        }
+                    }
+                }
+                // Also respond to message content changes (for streaming)
+                .onChange(of: chatViewModel.messages.last?.content ?? "") { _ in
+                    if let lastMessage = chatViewModel.messages.last {
+                        withAnimation(.easeInOut(duration: 0.1)) {
+                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                        }
+                    }
+                }
+                .onChange(of: chatViewModel.isLoading) { _ in
+                    // Scroll when loading state changes
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         if let lastMessage = chatViewModel.messages.last {
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 proxy.scrollTo(lastMessage.id, anchor: .bottom)
                             }
                         }
                     }
-                    // Also respond to message content changes (for streaming)
-                    .onChange(of: chatViewModel.messages.last?.content ?? "") { _ in
-                        if let lastMessage = chatViewModel.messages.last {
-                            withAnimation(.easeInOut(duration: 0.1)) {
-                                proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                            }
-                        }
-                    }
-                    .onChange(of: chatViewModel.isLoading) { _ in
-                        // Scroll when loading state changes
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            if let lastMessage = chatViewModel.messages.last {
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                                }
-                            }
-                        }
-                    }
-                    .onTapGesture {
-                        hideKeyboard()
-                    }
                 }
-
-                Divider()
-                    .background(Color(.separator))
-
-                // Input area
-                inputAreaView
-            }
-            .keyboardAware()
-            .navigationTitle(configurationManager.activeConfiguration?.modelID ?? "ChatMe")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Clear") {
-                        chatViewModel.clearMessages()
-                        HapticFeedback.lightImpact()
-                    }
-                    .disabled(chatViewModel.messages.isEmpty)
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Settings") {
-                        showingSettings = true
-                        HapticFeedback.lightImpact()
-                    }
+                .onTapGesture {
+                    hideKeyboard()
                 }
             }
+
+            Divider()
+                .background(Color(.separator))
+
+            // Input area
+            inputAreaView
+
+            // 设置按钮（隐藏位置）
+            settingsButtonView
         }
+        .keyboardAware()
+        .background(Color.chatBackground)
         .alert("Error", isPresented: $showingError) {
             Button("OK") { }
         } message: {
@@ -104,6 +144,22 @@ struct ChatView: View {
                 conversationStore: chatViewModel.conversationStore
             )
         }
+    }
+
+    // MARK: - Settings Button View
+    private var settingsButtonView: some View {
+        HStack {
+            Spacer()
+            Button("设置") {
+                showingSettings = true
+                HapticFeedback.lightImpact()
+            }
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .padding(.vertical, 8)
+            Spacer()
+        }
+        .background(Color.chatBackground)
     }
 
     // MARK: - Input Area View
@@ -174,6 +230,12 @@ struct ChatView: View {
             HapticFeedback.messageSent()
             chatViewModel.sendMessage()
         }
+    }
+
+    private func startNewConversation() {
+        // 使用 ChatViewModel 的完整会话管理功能
+        chatViewModel.startNewConversation()
+        navigationManager.startNewConversation()
     }
 
 }

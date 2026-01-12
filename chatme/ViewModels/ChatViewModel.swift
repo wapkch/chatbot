@@ -7,6 +7,7 @@ class ChatViewModel: ObservableObject {
     @Published var inputText: String = ""
     @Published var isLoading: Bool = false
     @Published var currentError: APIError?
+    @Published var currentConversation: Conversation?
 
     private let openAIService: OpenAIService
     private let configurationManager: ConfigurationManager
@@ -138,6 +139,117 @@ class ChatViewModel: ObservableObject {
         currentError = nil
     }
 
+    // MARK: - Conversation Management
+
+    /// 开始新会话
+    func startNewConversation() {
+        // 1. 保存当前会话（如果有消息）
+        if !messages.isEmpty && currentConversation != nil {
+            saveCurrentConversation()
+        }
+
+        // 2. 创建新会话
+        let newConversation = conversationStore.createNewConversation()
+
+        // 3. 重置状态
+        messages.removeAll()
+        currentConversation = newConversation
+        isLoading = false
+        currentError = nil
+        inputText = ""
+    }
+
+    /// 切换到指定会话
+    func switchToConversation(_ conversation: Conversation) {
+        // 1. 保存当前会话
+        if !messages.isEmpty && currentConversation != nil {
+            saveCurrentConversation()
+        }
+
+        // 2. 加载选定会话的消息
+        loadMessages(for: conversation)
+
+        // 3. 更新当前会话
+        currentConversation = conversation
+    }
+
+    /// 保存当前会话
+    private func saveCurrentConversation() {
+        guard let conversation = currentConversation else { return }
+
+        // 清除会话中的现有消息（避免重复）
+        if let existingMessages = conversation.messages {
+            for message in existingMessages {
+                if let message = message as? Message {
+                    managedObjectContext.delete(message)
+                }
+            }
+        }
+
+        // 保存当前消息到会话
+        for messageViewModel in messages {
+            let message = Message(context: managedObjectContext)
+            message.id = messageViewModel.id
+            message.content = messageViewModel.content
+            message.isFromUser = messageViewModel.isFromUser
+            message.timestamp = messageViewModel.timestamp
+            message.conversation = conversation
+        }
+
+        // 更新会话信息
+        conversation.updatedAt = Date()
+        conversation.messageCount = Int32(messages.count)
+
+        // 如果还没有标题或标题是默认的，生成标题
+        if (conversation.title == nil || conversation.title == "新会话") && messages.count >= 2 {
+            generateTitleIfNeeded(for: conversation)
+        }
+
+        do {
+            try managedObjectContext.save()
+        } catch {
+            print("Failed to save current conversation: \(error)")
+        }
+    }
+
+    /// 为指定会话生成标题
+    private func generateTitleIfNeeded(for conversation: Conversation) {
+        // 需要至少一轮用户消息和AI回复
+        let userMessages = messages.filter { $0.isFromUser }
+        let aiMessages = messages.filter { !$0.isFromUser }
+
+        if let firstUserMessage = userMessages.first?.content,
+           let firstAiMessage = aiMessages.first?.content {
+            let generatedTitle = conversationStore.generateTitleForConversation(
+                conversation,
+                userMessage: firstUserMessage,
+                aiResponse: firstAiMessage
+            )
+            conversation.title = generatedTitle
+        }
+    }
+
+    /// 为特定会话加载消息
+    private func loadMessages(for conversation: Conversation) {
+        let request: NSFetchRequest<Message> = Message.fetchRequest()
+        request.predicate = NSPredicate(format: "conversation == %@", conversation)
+        request.sortDescriptors = [NSSortDescriptor(keyPath: \Message.timestamp, ascending: true)]
+
+        do {
+            let coreDataMessages = try managedObjectContext.fetch(request)
+            messages = coreDataMessages.map { message in
+                MessageViewModel(
+                    id: message.id ?? UUID(),
+                    content: message.content ?? "",
+                    isFromUser: message.isFromUser,
+                    timestamp: message.timestamp ?? Date()
+                )
+            }
+        } catch {
+            print("Failed to load messages for conversation: \(error)")
+            messages = []
+        }
+    }
 
     deinit {
         cancellables.removeAll()
