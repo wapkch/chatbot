@@ -40,20 +40,30 @@ struct ChatView: View {
                         .fill(Color(.systemGroupedBackground))
                         .frame(width: geometry.size.width * 0.75)
                         .overlay(
-                            VStack {
+                            VStack(spacing: 0) {
+                                // 头部 - Chat History 标题
                                 HStack {
                                     Text("Chat History")
                                         .font(.title2)
                                         .fontWeight(.bold)
-                                        .padding(.leading)
+                                        .foregroundColor(.primary)
                                     Spacer()
                                 }
-                                .padding(.top)
-                                .padding(.bottom, 8)
+                                .padding(.horizontal)
+                                .padding(.top, 20)
+                                .padding(.bottom, 16)
 
-                                Spacer()
+                                // 中间内容区域（占位符）
+                                VStack {
+                                    Text("No conversations yet")
+                                        .font(.body)
+                                        .foregroundColor(.secondary)
+                                        .padding(.top, 40)
 
-                                // 设置按钮（底部位置）
+                                    Spacer()
+                                }
+
+                                // 底部 - Settings 按钮
                                 HStack {
                                     Spacer()
                                     Button("Settings") {
@@ -61,17 +71,14 @@ struct ChatView: View {
                                         navigationManager.closeSidebar()
                                         HapticFeedback.lightImpact()
                                     }
-                                    .font(.caption)
+                                    .font(.footnote)
                                     .foregroundColor(.secondary)
                                     Spacer()
                                 }
-                                .padding(.bottom)
+                                .padding(.bottom, 20)
                             }
                         )
                         .transition(.move(edge: .leading))
-                        .onTapGesture {
-                            navigationManager.closeSidebar()
-                        }
                 }
             }
         }
