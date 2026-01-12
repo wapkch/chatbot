@@ -50,7 +50,7 @@ struct ChatView: View {
                                     .font(.title2)
                                     .fontWeight(.bold)
                                     .foregroundColor(.black)
-                                    .padding(.top, 100)
+                                    .padding(.top, 20)
 
                                 // 会话列表或占位符
                                 if navigationManager.conversationGroups.isEmpty {
@@ -93,14 +93,24 @@ struct ChatView: View {
 
                                 Spacer()
 
-                                Button("Settings") {
+                                Button(action: {
                                     showingSettings = true
                                     navigationManager.closeSidebar()
                                     HapticFeedback.lightImpact()
+                                }) {
+                                    HStack {
+                                        Image(systemName: "gear")
+                                            .font(.footnote)
+                                        Text("Settings")
+                                            .font(.footnote)
+                                    }
+                                    .foregroundColor(.gray)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Color.gray.opacity(0.1))
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
                                 }
-                                .font(.footnote)
-                                .foregroundColor(.gray)
-                                .padding(.bottom, 50)
+                                .padding(.bottom, 30)
                             }
                         )
                         .transition(.move(edge: .leading))
