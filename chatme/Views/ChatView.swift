@@ -34,51 +34,51 @@ struct ChatView: View {
                         }
                     }
 
-                // 侧边栏（暂时使用占位符）
+                // 侧边栏
                 if navigationManager.isSidebarOpen {
-                    Rectangle()
-                        .fill(Color(.systemGroupedBackground))
-                        .frame(width: geometry.size.width * 0.75)
-                        .overlay(
-                            VStack(spacing: 0) {
-                                // 头部 - Chat History 标题
-                                HStack {
-                                    Text("Chat History")
-                                        .font(.title2)
-                                        .fontWeight(.bold)
-                                        .foregroundColor(.primary)
-                                    Spacer()
-                                }
-                                .padding(.horizontal)
-                                .padding(.top, 20)
-                                .padding(.bottom, 16)
+                    VStack(spacing: 0) {
+                        // 头部标题
+                        HStack {
+                            Text("Chat History")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .foregroundColor(.black)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 60) // 增加更多顶部间距避免状态栏遮挡
+                        .padding(.bottom, 20)
+                        .background(Color(.systemGroupedBackground))
 
-                                // 中间内容区域（占位符）
-                                VStack {
-                                    Text("No conversations yet")
-                                        .font(.body)
-                                        .foregroundColor(.secondary)
-                                        .padding(.top, 40)
+                        // 中间内容区域
+                        VStack {
+                            Text("No conversations yet")
+                                .font(.body)
+                                .foregroundColor(.gray)
+                                .padding(.top, 60)
 
-                                    Spacer()
-                                }
+                            Spacer()
+                        }
+                        .background(Color(.systemGroupedBackground))
 
-                                // 底部 - Settings 按钮
-                                HStack {
-                                    Spacer()
-                                    Button("Settings") {
-                                        showingSettings = true
-                                        navigationManager.closeSidebar()
-                                        HapticFeedback.lightImpact()
-                                    }
-                                    .font(.footnote)
-                                    .foregroundColor(.secondary)
-                                    Spacer()
-                                }
-                                .padding(.bottom, 20)
+                        // 底部设置按钮
+                        HStack {
+                            Spacer()
+                            Button("Settings") {
+                                showingSettings = true
+                                navigationManager.closeSidebar()
+                                HapticFeedback.lightImpact()
                             }
-                        )
-                        .transition(.move(edge: .leading))
+                            .font(.footnote)
+                            .foregroundColor(.gray)
+                            Spacer()
+                        }
+                        .padding(.bottom, 40)
+                        .background(Color(.systemGroupedBackground))
+                    }
+                    .frame(width: geometry.size.width * 0.75)
+                    .background(Color(.systemGroupedBackground))
+                    .transition(.move(edge: .leading))
                 }
             }
         }
