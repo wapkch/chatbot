@@ -20,7 +20,7 @@ struct ChatNavigationBar: View {
                     .font(.title2)
                     .foregroundColor(.primary)
             }
-            .accessibilityLabel("打开聊天记录")
+            .accessibilityLabel("Open chat history")
 
             Spacer()
 
@@ -38,7 +38,7 @@ struct ChatNavigationBar: View {
                     .font(.title2)
                     .foregroundColor(.primary)
             }
-            .accessibilityLabel("开启新会话")
+            .accessibilityLabel("Start new conversation")
         }
         .padding(.horizontal)
         .padding(.vertical, 8)

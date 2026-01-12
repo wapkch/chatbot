@@ -28,6 +28,11 @@ struct ChatView: View {
                 chatContentView
                     .offset(x: navigationManager.isSidebarOpen ? geometry.size.width * 0.75 : 0)
                     .disabled(navigationManager.isSidebarOpen)
+                    .onTapGesture {
+                        if navigationManager.isSidebarOpen {
+                            navigationManager.closeSidebar()
+                        }
+                    }
 
                 // 侧边栏（暂时使用占位符）
                 if navigationManager.isSidebarOpen {
@@ -36,19 +41,37 @@ struct ChatView: View {
                         .frame(width: geometry.size.width * 0.75)
                         .overlay(
                             VStack {
-                                Text("会话列表")
-                                    .font(.title2)
-                                    .padding()
+                                HStack {
+                                    Text("Chat History")
+                                        .font(.title2)
+                                        .fontWeight(.bold)
+                                        .padding(.leading)
+                                    Spacer()
+                                }
+                                .padding(.top)
+                                .padding(.bottom, 8)
 
                                 Spacer()
 
-                                Button("关闭") {
-                                    navigationManager.closeSidebar()
+                                // 设置按钮（底部位置）
+                                HStack {
+                                    Spacer()
+                                    Button("Settings") {
+                                        showingSettings = true
+                                        navigationManager.closeSidebar()
+                                        HapticFeedback.lightImpact()
+                                    }
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    Spacer()
                                 }
-                                .padding()
+                                .padding(.bottom)
                             }
                         )
                         .transition(.move(edge: .leading))
+                        .onTapGesture {
+                            navigationManager.closeSidebar()
+                        }
                 }
             }
         }
@@ -124,9 +147,6 @@ struct ChatView: View {
 
             // Input area
             inputAreaView
-
-            // 设置按钮（隐藏位置）
-            settingsButtonView
         }
         .keyboardAware()
         .background(Color.chatBackground)
@@ -146,21 +166,6 @@ struct ChatView: View {
         }
     }
 
-    // MARK: - Settings Button View
-    private var settingsButtonView: some View {
-        HStack {
-            Spacer()
-            Button("设置") {
-                showingSettings = true
-                HapticFeedback.lightImpact()
-            }
-            .font(.caption)
-            .foregroundColor(.secondary)
-            .padding(.vertical, 8)
-            Spacer()
-        }
-        .background(Color.chatBackground)
-    }
 
     // MARK: - Input Area View
     private var inputAreaView: some View {
