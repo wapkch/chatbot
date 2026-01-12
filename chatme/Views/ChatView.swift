@@ -34,51 +34,37 @@ struct ChatView: View {
                         }
                     }
 
-                // 侧边栏
+                // 侧边栏 - 调试版本
                 if navigationManager.isSidebarOpen {
-                    VStack(spacing: 0) {
-                        // 头部标题
-                        HStack {
-                            Text("Chat History")
-                                .font(.title2)
-                                .fontWeight(.bold)
-                                .foregroundColor(.black)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 60) // 增加更多顶部间距避免状态栏遮挡
-                        .padding(.bottom, 20)
-                        .background(Color(.systemGroupedBackground))
+                    Rectangle()
+                        .fill(Color.red) // 使用红色背景便于调试
+                        .frame(width: geometry.size.width * 0.75)
+                        .overlay(
+                            VStack {
+                                Text("CHAT HISTORY")
+                                    .font(.largeTitle)
+                                    .fontWeight(.black)
+                                    .foregroundColor(.white)
+                                    .padding(.top, 100)
 
-                        // 中间内容区域
-                        VStack {
-                            Text("No conversations yet")
-                                .font(.body)
-                                .foregroundColor(.gray)
-                                .padding(.top, 60)
+                                Text("DEBUG: This should be visible")
+                                    .font(.body)
+                                    .foregroundColor(.white)
+                                    .padding(.top, 50)
 
-                            Spacer()
-                        }
-                        .background(Color(.systemGroupedBackground))
+                                Spacer()
 
-                        // 底部设置按钮
-                        HStack {
-                            Spacer()
-                            Button("Settings") {
-                                showingSettings = true
-                                navigationManager.closeSidebar()
-                                HapticFeedback.lightImpact()
+                                Button("SETTINGS") {
+                                    showingSettings = true
+                                    navigationManager.closeSidebar()
+                                    HapticFeedback.lightImpact()
+                                }
+                                .font(.title)
+                                .foregroundColor(.white)
+                                .padding(.bottom, 50)
                             }
-                            .font(.footnote)
-                            .foregroundColor(.gray)
-                            Spacer()
-                        }
-                        .padding(.bottom, 40)
-                        .background(Color(.systemGroupedBackground))
-                    }
-                    .frame(width: geometry.size.width * 0.75)
-                    .background(Color(.systemGroupedBackground))
-                    .transition(.move(edge: .leading))
+                        )
+                        .transition(.move(edge: .leading))
                 }
             }
         }
