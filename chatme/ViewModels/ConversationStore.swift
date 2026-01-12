@@ -153,11 +153,13 @@ class ConversationStore: ObservableObject {
 
     // MARK: - New Methods for Enhanced Functionality
 
-    /// 按日期分组获取会话列表
+    /// 按日期分组获取会话列表（只显示有消息的会话）
     func getConversationsGroupedByDate() async -> [ConversationGroup] {
         return await withCheckedContinuation { continuation in
             managedObjectContext.perform {
                 let request: NSFetchRequest<Conversation> = Conversation.fetchRequest()
+                // 只获取有消息的会话
+                request.predicate = NSPredicate(format: "messageCount > 0")
                 request.sortDescriptors = [NSSortDescriptor(keyPath: \Conversation.updatedAt, ascending: false)]
 
                 do {
@@ -172,12 +174,13 @@ class ConversationStore: ObservableObject {
         }
     }
 
-    /// 搜索会话
+    /// 搜索会话（只搜索有消息的会话）
     func searchConversations(query: String) async -> [Conversation] {
         return await withCheckedContinuation { continuation in
             managedObjectContext.perform {
                 let request: NSFetchRequest<Conversation> = Conversation.fetchRequest()
-                request.predicate = NSPredicate(format: "title CONTAINS[cd] %@", query)
+                // 搜索标题包含关键词且有消息的会话
+                request.predicate = NSPredicate(format: "title CONTAINS[cd] %@ AND messageCount > 0", query)
                 request.sortDescriptors = [NSSortDescriptor(keyPath: \Conversation.updatedAt, ascending: false)]
 
                 do {
