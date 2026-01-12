@@ -11,14 +11,19 @@ struct ChatView: View {
 
     init() {
         let configManager = ConfigurationManager()
-        let conversationStore = ConversationStore(context: PersistenceController.shared.container.viewContext)
+        let context = PersistenceController.shared.container.viewContext
+        let conversationStore = ConversationStore(context: context)
 
-        _chatViewModel = StateObject(wrappedValue: ChatViewModel(
+        let chatVM = ChatViewModel(
             configurationManager: configManager,
-            context: PersistenceController.shared.container.viewContext
-        ))
+            context: context
+        )
+
+        let navManager = NavigationManager(conversationStore: conversationStore)
+
+        _chatViewModel = StateObject(wrappedValue: chatVM)
         _configurationManager = StateObject(wrappedValue: configManager)
-        _navigationManager = StateObject(wrappedValue: NavigationManager(conversationStore: conversationStore))
+        _navigationManager = StateObject(wrappedValue: navManager)
     }
 
     var body: some View {
@@ -47,10 +52,44 @@ struct ChatView: View {
                                     .foregroundColor(.black)
                                     .padding(.top, 100)
 
-                                Text("No conversations yet")
-                                    .font(.body)
-                                    .foregroundColor(.gray)
-                                    .padding(.top, 50)
+                                // 会话列表或占位符
+                                if navigationManager.conversationGroups.isEmpty {
+                                    Text("No conversations yet")
+                                        .font(.body)
+                                        .foregroundColor(.gray)
+                                        .padding(.top, 50)
+                                } else {
+                                    ScrollView {
+                                        LazyVStack(alignment: .leading, spacing: 0) {
+                                            ForEach(navigationManager.conversationGroups) { group in
+                                                // 分组标题
+                                                HStack {
+                                                    Text(group.title)
+                                                        .font(.caption)
+                                                        .fontWeight(.medium)
+                                                        .foregroundColor(.gray)
+                                                    Spacer()
+                                                }
+                                                .padding(.horizontal, 20)
+                                                .padding(.top, 16)
+                                                .padding(.bottom, 4)
+
+                                                // 会话列表
+                                                ForEach(group.conversations, id: \.id) { conversation in
+                                                    ConversationRowView(
+                                                        conversation: conversation,
+                                                        isSelected: conversation.id == navigationManager.currentConversation?.id,
+                                                        onTap: {
+                                                            chatViewModel.switchToConversation(conversation)
+                                                            navigationManager.selectConversation(conversation)
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        .padding(.top, 8)
+                                    }
+                                }
 
                                 Spacer()
 
@@ -80,6 +119,10 @@ struct ChatView: View {
                 onToggleSidebar: {
                     HapticFeedback.lightImpact()
                     navigationManager.toggleSidebar()
+                    // 当侧边栏打开时刷新会话列表
+                    if !navigationManager.isSidebarOpen {
+                        navigationManager.refreshConversationList()
+                    }
                 },
                 onNewChat: {
                     HapticFeedback.lightImpact()
@@ -233,6 +276,8 @@ struct ChatView: View {
     private func startNewConversation() {
         // 使用 ChatViewModel 的完整会话管理功能
         chatViewModel.startNewConversation()
+        navigationManager.currentConversation = chatViewModel.currentConversation
+        navigationManager.refreshConversationList()
         navigationManager.startNewConversation()
     }
 
