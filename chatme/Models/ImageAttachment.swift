@@ -50,42 +50,18 @@ struct ImageAttachment: Identifiable, Codable, Equatable {
             // Fallback to temporary directory if documents directory is unavailable
             return FileManager.default.temporaryDirectory.appendingPathComponent("Images", isDirectory: true)
         }
-        let imagesDir = documentsPath.appendingPathComponent("Images", isDirectory: true)
-
-        // Ensure directory exists
-        do {
-            try FileManager.default.createDirectory(at: imagesDir, withIntermediateDirectories: true, attributes: nil)
-        } catch {
-            print("Warning: Failed to create images directory: \(error)")
-        }
-
-        return imagesDir
+        return documentsPath.appendingPathComponent("Images", isDirectory: true)
     }
 
     var originalURL: URL {
         let imagesDir = Self.imagesDirectory
         let originalsDir = imagesDir.appendingPathComponent("originals", isDirectory: true)
-
-        // Ensure originals directory exists
-        do {
-            try FileManager.default.createDirectory(at: originalsDir, withIntermediateDirectories: true, attributes: nil)
-        } catch {
-            print("Warning: Failed to create originals directory: \(error)")
-        }
-
         return originalsDir.appendingPathComponent(fileName)
     }
 
     var thumbnailURL: URL {
         let imagesDir = Self.imagesDirectory
         let thumbnailsDir = imagesDir.appendingPathComponent("thumbnails", isDirectory: true)
-
-        // Ensure thumbnails directory exists
-        do {
-            try FileManager.default.createDirectory(at: thumbnailsDir, withIntermediateDirectories: true, attributes: nil)
-        } catch {
-            print("Warning: Failed to create thumbnails directory: \(error)")
-        }
 
         let fileNameWithoutExt = Self.getFileNameWithoutExtension(from: fileName)
         let fileExt = Self.getFileExtension(from: fileName)
