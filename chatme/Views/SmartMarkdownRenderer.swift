@@ -36,6 +36,13 @@ struct SmartMarkdownRenderer: View {
                 views.append(AnyView(Spacer().frame(height: 8)))
             } else if let view = parseHeading(trimmed) {
                 views.append(view)
+            } else if isHorizontalRule(trimmed) {
+                views.append(AnyView(
+                    Rectangle()
+                        .fill(MarkdownTheme.Colors.divider)
+                        .frame(height: 1)
+                        .padding(.vertical, MarkdownTheme.Spacing.dividerVerticalPadding)
+                ))
             } else if let view = parseBulletPoint(trimmed) {
                 views.append(view)
             } else if let view = parseNumberedList(trimmed) {
@@ -131,6 +138,13 @@ struct SmartMarkdownRenderer: View {
         }
 
         return cells
+    }
+
+    // MARK: - Horizontal Rule Detection
+    private func isHorizontalRule(_ line: String) -> Bool {
+        // Match ---, ***, or ___ (with at least 3 characters)
+        let hrPattern = #/^[-*_]{3,}$/#
+        return line.firstMatch(of: hrPattern) != nil
     }
 
     // MARK: - Heading
