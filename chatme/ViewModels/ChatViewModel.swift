@@ -8,6 +8,7 @@ class ChatViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var currentError: APIError?
     @Published var currentConversation: Conversation?
+    @Published var pendingImageAttachments: [ImageAttachment] = []
 
     private let openAIService: OpenAIService
     private let configurationManager: ConfigurationManager
@@ -26,16 +27,27 @@ class ChatViewModel: ObservableObject {
 
     @MainActor
     func sendMessage() {
-        guard !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        let hasText = !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasImages = !pendingImageAttachments.isEmpty
+
+        guard (hasText || hasImages),
               let configuration = configurationManager.activeConfiguration else {
             return
         }
 
         let userMessage = inputText
+        let attachments = pendingImageAttachments
+
         inputText = ""
+        pendingImageAttachments = []
 
         // Add user message immediately
-        let userMessageVM = MessageViewModel(content: userMessage, isFromUser: true, timestamp: Date())
+        let userMessageVM = MessageViewModel(
+            content: userMessage,
+            isFromUser: true,
+            timestamp: Date(),
+            imageAttachments: attachments
+        )
         messages.append(userMessageVM)
         saveMessage(userMessageVM)
 
@@ -46,11 +58,30 @@ class ChatViewModel: ObservableObject {
         isLoading = true
         currentError = nil
 
-        let conversationHistory = messages.dropLast().compactMap { messageVM in
-            ChatMessage(role: messageVM.isFromUser ? .user : .assistant, content: messageVM.content)
+        // Build conversation history
+        let conversationHistory = messages.dropLast().compactMap { messageVM -> ChatMessage? in
+            guard !messageVM.content.isEmpty || messageVM.hasImages else { return nil }
+
+            if messageVM.hasImages {
+                // Note: We don't include historical images in the API call to save tokens
+                // Only the current message's images are sent
+                return ChatMessage(role: messageVM.isFromUser ? .user : .assistant, content: messageVM.content)
+            } else {
+                return ChatMessage(role: messageVM.isFromUser ? .user : .assistant, content: messageVM.content)
+            }
         }
 
-        openAIService.sendMessage(userMessage, configuration: configuration, conversationHistory: conversationHistory)
+        // Choose the appropriate API method
+        let publisher: AnyPublisher<String, APIError>
+        if attachments.isEmpty {
+            publisher = openAIService.sendMessage(userMessage, configuration: configuration, conversationHistory: conversationHistory)
+        } else {
+            // TODO: This will be implemented in Task 10 - OpenAIService image support
+            // For now, fall back to text-only to maintain functionality
+            publisher = openAIService.sendMessage(userMessage, configuration: configuration, conversationHistory: conversationHistory)
+        }
+
+        publisher
             .receive(on: DispatchQueue.main)
             .sink(
                 receiveCompletion: { [weak self] completion in
@@ -58,7 +89,6 @@ class ChatViewModel: ObservableObject {
 
                     switch completion {
                     case .finished:
-                        // Save the completed assistant message
                         if let lastMessage = self?.messages.last, !lastMessage.isFromUser {
                             self?.saveMessage(lastMessage)
                         }
@@ -66,7 +96,6 @@ class ChatViewModel: ObservableObject {
 
                     case .failure(let error):
                         self?.currentError = error
-                        // Remove the loading message on error
                         self?.messages.removeLast()
                         HapticFeedback.errorOccurred()
                     }
@@ -77,7 +106,6 @@ class ChatViewModel: ObservableObject {
                         return
                     }
 
-                    // CRITICAL FIX: Do the update synchronously to avoid race conditions
                     let lastMessage = self.messages[lastIndex]
                     let updatedContent = lastMessage.content + content
 
@@ -113,9 +141,11 @@ class ChatViewModel: ObservableObject {
         if let coreDataMessages = try? managedObjectContext.fetch(request) {
             messages = coreDataMessages.map { message in
                 MessageViewModel(
+                    id: message.id ?? UUID(),
                     content: message.content ?? "",
                     isFromUser: message.isFromUser,
-                    timestamp: message.timestamp ?? Date()
+                    timestamp: message.timestamp ?? Date(),
+                    imageAttachments: message.imageAttachmentsList
                 )
             }
         }
@@ -127,6 +157,11 @@ class ChatViewModel: ObservableObject {
         message.content = messageViewModel.content
         message.isFromUser = messageViewModel.isFromUser
         message.timestamp = messageViewModel.timestamp
+        message.imageAttachmentsList = messageViewModel.imageAttachments
+
+        if let conversation = currentConversation {
+            message.conversation = conversation
+        }
 
         do {
             try managedObjectContext.save()
@@ -266,6 +301,7 @@ class ChatViewModel: ObservableObject {
             message.content = messageViewModel.content
             message.isFromUser = messageViewModel.isFromUser
             message.timestamp = messageViewModel.timestamp
+            message.imageAttachmentsList = messageViewModel.imageAttachments
             message.conversation = conversation
         }
 
@@ -315,12 +351,44 @@ class ChatViewModel: ObservableObject {
                     id: message.id ?? UUID(),
                     content: message.content ?? "",
                     isFromUser: message.isFromUser,
-                    timestamp: message.timestamp ?? Date()
+                    timestamp: message.timestamp ?? Date(),
+                    imageAttachments: message.imageAttachmentsList
                 )
             }
         } catch {
             print("Failed to load messages for conversation: \(error)")
             messages = []
+        }
+    }
+
+    // MARK: - Image Management
+
+    func addImageAttachment(_ attachment: ImageAttachment) {
+        guard pendingImageAttachments.count < ImageCompressionConfig.maxImageCount else { return }
+        pendingImageAttachments.append(attachment)
+    }
+
+    func removeImageAttachment(_ attachment: ImageAttachment) {
+        pendingImageAttachments.removeAll { $0.id == attachment.id }
+        // Also delete the file
+        Task {
+            do {
+                try await ImageStorageService.shared.deleteImage(attachment)
+            } catch {
+                print("Failed to delete image: \(error)")
+            }
+        }
+    }
+
+    func clearPendingImages() {
+        let attachments = pendingImageAttachments
+        pendingImageAttachments = []
+        Task {
+            do {
+                try await ImageStorageService.shared.deleteImages(attachments)
+            } catch {
+                print("Failed to delete images: \(error)")
+            }
         }
     }
 
@@ -334,18 +402,25 @@ struct MessageViewModel: Identifiable, Equatable {
     let content: String
     let isFromUser: Bool
     let timestamp: Date
+    let imageAttachments: [ImageAttachment]
 
-    init(id: UUID = UUID(), content: String, isFromUser: Bool, timestamp: Date) {
+    init(id: UUID = UUID(), content: String, isFromUser: Bool, timestamp: Date, imageAttachments: [ImageAttachment] = []) {
         self.id = id
         self.content = content
         self.isFromUser = isFromUser
         self.timestamp = timestamp
+        self.imageAttachments = imageAttachments
+    }
+
+    var hasImages: Bool {
+        !imageAttachments.isEmpty
     }
 
     static func == (lhs: MessageViewModel, rhs: MessageViewModel) -> Bool {
         return lhs.id == rhs.id &&
                lhs.content == rhs.content &&
                lhs.isFromUser == rhs.isFromUser &&
-               lhs.timestamp == rhs.timestamp
+               lhs.timestamp == rhs.timestamp &&
+               lhs.imageAttachments == rhs.imageAttachments
     }
 }
