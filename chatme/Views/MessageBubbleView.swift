@@ -18,16 +18,6 @@ struct MessageBubbleView: View {
                     timestampView
                 }
             } else {
-                // Assistant avatar space
-                Circle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 32, height: 32)
-                    .overlay(
-                        Image(systemName: "brain.head.profile")
-                            .font(.system(size: 16))
-                            .foregroundColor(.gray)
-                    )
-
                 VStack(alignment: .leading, spacing: 4) {
                     messageBubble
                         .contextMenu {
@@ -36,8 +26,6 @@ struct MessageBubbleView: View {
 
                     timestampView
                 }
-
-                Spacer(minLength: 50)
             }
         }
         .padding(.horizontal)
@@ -50,7 +38,7 @@ struct MessageBubbleView: View {
     private var messageBubble: some View {
         Group {
             if message.content.isEmpty && !message.isFromUser {
-                // Typing indicator
+                // Typing indicator - 保留淡灰背景
                 HStack(spacing: 4) {
                     ForEach(0..<3) { index in
                         Circle()
@@ -67,8 +55,8 @@ struct MessageBubbleView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
-                .background(messageBubbleColor)
-                .clipShape(messageBubbleShape)
+                .background(Color.gray.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 18))
                 .onAppear {
                     typingAnimation = true
                 }
@@ -85,11 +73,9 @@ struct MessageBubbleView: View {
                         .textSelection(.enabled)
                 } else {
                     // Assistant messages: Smart markdown rendering with streaming support
+                    // 全宽无气泡样式
                     SmartMarkdownRenderer(content: message.content)
-                        .padding(.horizontal, 16)
                         .padding(.vertical, 12)
-                        .background(messageBubbleColor)
-                        .clipShape(messageBubbleShape)
                 }
             }
         }
