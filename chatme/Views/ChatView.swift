@@ -8,6 +8,7 @@ struct ChatView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @State private var showingSettings = false
     @State private var showingError = false
+    @State private var showingImagePicker = false
 
     init() {
         let configManager = ConfigurationManager()
@@ -210,46 +211,89 @@ struct ChatView: View {
                 conversationStore: chatViewModel.conversationStore
             )
         }
+        .sheet(isPresented: $showingImagePicker) {
+            ImagePickerSheet(
+                selectedImages: .init(
+                    get: { [] },
+                    set: { images in
+                        Task {
+                            await handleSelectedImages(images)
+                        }
+                    }
+                ),
+                isPresented: $showingImagePicker,
+                maxSelection: ImageCompressionConfig.maxImageCount
+            )
+        }
     }
 
 
     // MARK: - Input Area View
     private var inputAreaView: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 8) {
-                TextField("Type a message...", text: $chatViewModel.inputText, axis: .vertical)
-                    .font(.inputFont)
-                    .textFieldStyle(.plain)
-                    .disabled(chatViewModel.isLoading)
-                    .lineLimit(1...6)
-                    .onSubmit {
-                        if !chatViewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            sendMessage()
-                        }
+        VStack(spacing: 0) {
+            // Image preview row (when images are selected)
+            if !chatViewModel.pendingImageAttachments.isEmpty {
+                ImagePreviewRow(
+                    attachments: chatViewModel.pendingImageAttachments,
+                    onDelete: { attachment in
+                        chatViewModel.removeImageAttachment(attachment)
                     }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(Color.inputBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 20))
+                )
 
-            // Send button
-            Button {
-                sendMessage()
-            } label: {
-                Image(systemName: chatViewModel.isLoading ? "stop.circle.fill" : "paperplane.fill")
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(sendButtonColor)
-                    .frame(width: 40, height: 40)
-                    .background(sendButtonBackgroundColor)
-                    .clipShape(Circle())
-                    .loadingAnimation(chatViewModel.isLoading)
+                Divider()
+                    .background(Color(.separator))
             }
-            .disabled(shouldDisableSendButton)
+
+            // Input row with + button, text field, and send button
+            HStack(spacing: 12) {
+                // + button for image selection
+                Button(action: {
+                    showingImagePicker = true
+                }) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundColor(.blue)
+                        .frame(width: 32, height: 32)
+                        .background(Color.blue.opacity(0.1))
+                        .clipShape(Circle())
+                }
+                .disabled(chatViewModel.isLoading)
+
+                HStack(spacing: 8) {
+                    TextField("Type a message...", text: $chatViewModel.inputText, axis: .vertical)
+                        .font(.inputFont)
+                        .textFieldStyle(.plain)
+                        .disabled(chatViewModel.isLoading)
+                        .lineLimit(1...6)
+                        .onSubmit {
+                            if !chatViewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                sendMessage()
+                            }
+                        }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Color.inputBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+
+                // Send button
+                Button {
+                    sendMessage()
+                } label: {
+                    Image(systemName: chatViewModel.isLoading ? "stop.circle.fill" : "paperplane.fill")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundColor(sendButtonColor)
+                        .frame(width: 40, height: 40)
+                        .background(sendButtonBackgroundColor)
+                        .clipShape(Circle())
+                        .loadingAnimation(chatViewModel.isLoading)
+                }
+                .disabled(shouldDisableSendButton)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 12)
+            .background(Color.chatBackground)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 12)
-        .background(Color.chatBackground)
     }
 
     // MARK: - Computed Properties
@@ -268,7 +312,9 @@ struct ChatView: View {
     }
 
     private var shouldDisableSendButton: Bool {
-        return chatViewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !chatViewModel.isLoading
+        let hasText = !chatViewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasImages = !chatViewModel.pendingImageAttachments.isEmpty
+        return !(hasText || hasImages) && !chatViewModel.isLoading
     }
 
     // MARK: - Methods
@@ -289,6 +335,20 @@ struct ChatView: View {
         navigationManager.currentConversation = chatViewModel.currentConversation
         navigationManager.refreshConversationList()
         navigationManager.startNewConversation()
+    }
+
+    private func handleSelectedImages(_ images: [UIImage]) async {
+        for image in images {
+            do {
+                let attachment = try await ImageStorageService.shared.saveImage(image)
+                await MainActor.run {
+                    chatViewModel.addImageAttachment(attachment)
+                }
+            } catch {
+                print("Failed to save image: \(error)")
+                // Handle error - perhaps show an alert
+            }
+        }
     }
 
 }
