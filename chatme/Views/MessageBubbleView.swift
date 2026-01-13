@@ -84,15 +84,12 @@ struct MessageBubbleView: View {
                         .clipShape(messageBubbleShape)
                         .textSelection(.enabled)
                 } else {
-                    // Assistant messages: Plain text for debugging
-                    Text(message.content)
-                        .font(.messageFont)
-                        .foregroundColor(textColor)
+                    // Assistant messages: Smart markdown rendering with streaming support
+                    SmartMarkdownRenderer(content: message.content)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                         .background(messageBubbleColor)
                         .clipShape(messageBubbleShape)
-                        .textSelection(.enabled)
                 }
             }
         }
