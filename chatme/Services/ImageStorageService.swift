@@ -1,11 +1,13 @@
 import UIKit
 import Foundation
+import os.log
 
-actor ImageStorageService {
+// Non-actor class to ensure UIKit operations can run on main thread
+class ImageStorageService {
     static let shared = ImageStorageService()
 
     private let fileManager = FileManager.default
-    private let processingQueue = DispatchQueue(label: "com.chatme.imageProcessing", qos: .userInitiated)
+    private let logger = Logger(subsystem: "com.chatme.ImageStorageService", category: "ImageStorage")
 
     private var imagesDirectory: URL {
         let documentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -23,9 +25,8 @@ actor ImageStorageService {
     // MARK: - Initialization
 
     init() {
-        Task {
-            await createDirectoriesIfNeeded()
-        }
+        // Ensure directories exist synchronously during initialization
+        createDirectoriesIfNeeded()
     }
 
     private func createDirectoriesIfNeeded() {
@@ -33,27 +34,37 @@ actor ImageStorageService {
             try fileManager.createDirectory(at: originalsDirectory, withIntermediateDirectories: true)
             try fileManager.createDirectory(at: thumbnailsDirectory, withIntermediateDirectories: true)
         } catch {
-            print("Failed to create image directories: \(error)")
+            logger.error("Failed to create image directories: \(error.localizedDescription)")
         }
     }
 
     // MARK: - Public Methods
 
     func saveImage(_ image: UIImage) async throws -> ImageAttachment {
+        // Ensure directories exist before attempting to save
+        createDirectoriesIfNeeded()
+
         let attachment = ImageAttachment()
 
-        // Compress and save original
-        guard let compressedImage = compressImage(image, maxDimension: ImageCompressionConfig.maxDimension),
-              let originalData = compressedImage.jpegData(compressionQuality: ImageCompressionConfig.compressionQuality) else {
-            throw ImageStorageError.compressionFailed
+        // Perform UIKit operations on main thread
+        let (compressedImage, originalData) = try await MainActor.run {
+            guard let compressedImage = self.compressImage(image, maxDimension: ImageCompressionConfig.maxDimension),
+                  let originalData = compressedImage.jpegData(compressionQuality: ImageCompressionConfig.compressionQuality) else {
+                throw ImageStorageError.compressionFailed
+            }
+            return (compressedImage, originalData)
         }
 
+        // File I/O can be done off main thread
         try originalData.write(to: attachment.originalURL)
 
-        // Generate and save thumbnail
-        guard let thumbnail = generateThumbnail(from: compressedImage, size: ImageCompressionConfig.thumbnailSize),
-              let thumbnailData = thumbnail.jpegData(compressionQuality: 0.7) else {
-            throw ImageStorageError.thumbnailGenerationFailed
+        // Generate and save thumbnail on main thread
+        let thumbnailData = try await MainActor.run {
+            guard let thumbnail = self.generateThumbnail(from: compressedImage, size: ImageCompressionConfig.thumbnailSize),
+                  let thumbnailData = thumbnail.jpegData(compressionQuality: ImageCompressionConfig.thumbnailQuality) else {
+                throw ImageStorageError.thumbnailGenerationFailed
+            }
+            return thumbnailData
         }
 
         try thumbnailData.write(to: attachment.thumbnailURL)
@@ -61,40 +72,74 @@ actor ImageStorageService {
         return attachment
     }
 
-    func loadOriginalImage(for attachment: ImageAttachment) async -> UIImage? {
+    func loadOriginalImage(for attachment: ImageAttachment) async throws -> UIImage {
         guard let data = try? Data(contentsOf: attachment.originalURL) else {
-            return nil
+            throw ImageStorageError.loadFailed
         }
-        return UIImage(data: data)
+
+        // UIImage creation should be on main thread
+        return try await MainActor.run {
+            guard let image = UIImage(data: data) else {
+                throw ImageStorageError.loadFailed
+            }
+            return image
+        }
     }
 
-    func loadThumbnail(for attachment: ImageAttachment) async -> UIImage? {
+    func loadThumbnail(for attachment: ImageAttachment) async throws -> UIImage {
         guard let data = try? Data(contentsOf: attachment.thumbnailURL) else {
-            return nil
+            throw ImageStorageError.loadFailed
         }
-        return UIImage(data: data)
+
+        // UIImage creation should be on main thread
+        return try await MainActor.run {
+            guard let image = UIImage(data: data) else {
+                throw ImageStorageError.loadFailed
+            }
+            return image
+        }
     }
 
-    func loadBase64(for attachment: ImageAttachment) async -> String? {
+    func loadBase64(for attachment: ImageAttachment) async throws -> String {
         guard let data = try? Data(contentsOf: attachment.originalURL) else {
-            return nil
+            throw ImageStorageError.loadFailed
         }
         return data.base64EncodedString()
     }
 
-    func deleteImage(_ attachment: ImageAttachment) async {
-        try? fileManager.removeItem(at: attachment.originalURL)
-        try? fileManager.removeItem(at: attachment.thumbnailURL)
-    }
+    func deleteImage(_ attachment: ImageAttachment) async throws {
+        do {
+            try fileManager.removeItem(at: attachment.originalURL)
+        } catch {
+            logger.error("Failed to delete original image: \(error.localizedDescription)")
+            throw ImageStorageError.saveFailed
+        }
 
-    func deleteImages(_ attachments: [ImageAttachment]) async {
-        for attachment in attachments {
-            await deleteImage(attachment)
+        do {
+            try fileManager.removeItem(at: attachment.thumbnailURL)
+        } catch {
+            logger.error("Failed to delete thumbnail image: \(error.localizedDescription)")
+            throw ImageStorageError.saveFailed
         }
     }
 
-    // MARK: - Private Methods
+    func deleteImages(_ attachments: [ImageAttachment]) async throws {
+        // Make batch operations concurrent for better efficiency
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for attachment in attachments {
+                group.addTask {
+                    try await self.deleteImage(attachment)
+                }
+            }
 
+            // Wait for all deletions to complete
+            for try await _ in group {}
+        }
+    }
+
+    // MARK: - Private Methods (UIKit operations - must run on main thread)
+
+    @MainActor
     private func compressImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage? {
         let size = image.size
         let ratio = min(maxDimension / size.width, maxDimension / size.height)
@@ -113,6 +158,7 @@ actor ImageStorageService {
         return resizedImage
     }
 
+    @MainActor
     private func generateThumbnail(from image: UIImage, size: CGFloat) -> UIImage? {
         let aspectRatio = image.size.width / image.size.height
         let thumbnailSize: CGSize
@@ -139,6 +185,7 @@ enum ImageStorageError: Error, LocalizedError {
     case thumbnailGenerationFailed
     case saveFailed
     case loadFailed
+    case directoryCreationFailed
 
     var errorDescription: String? {
         switch self {
@@ -150,6 +197,8 @@ enum ImageStorageError: Error, LocalizedError {
             return "Failed to save image"
         case .loadFailed:
             return "Failed to load image"
+        case .directoryCreationFailed:
+            return "Failed to create necessary directories"
         }
     }
 }

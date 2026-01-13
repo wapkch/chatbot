@@ -106,6 +106,7 @@ struct ImageAttachment: Identifiable, Codable, Equatable {
 struct ImageCompressionConfig {
     static let maxDimension: CGFloat = 2048
     static let compressionQuality: CGFloat = 0.8
+    static let thumbnailQuality: CGFloat = 0.7
     static let thumbnailSize: CGFloat = 200
     static let maxImageCount: Int = 4
 }
