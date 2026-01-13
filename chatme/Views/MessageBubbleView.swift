@@ -3,6 +3,7 @@ import SwiftUI
 struct MessageBubbleView: View {
     let message: MessageViewModel
     @State private var showingCopiedAlert = false
+    @ObservedObject var chatViewModel: ChatViewModel
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
@@ -24,7 +25,16 @@ struct MessageBubbleView: View {
                             contextMenuButtons
                         }
 
-                    timestampView
+                    // 按钮和时间戳组合
+                    HStack(spacing: 8) {
+                        // AI消息的操作按钮
+                        if !message.content.isEmpty {
+                            actionButtonsHorizontalView
+                        }
+
+                        timestampView
+                        Spacer()
+                    }
                 }
             }
         }
@@ -107,6 +117,30 @@ struct MessageBubbleView: View {
         }
     }
 
+    private var actionButtonsHorizontalView: some View {
+        HStack(spacing: 6) {
+            // 复制按钮 - 参考ChatGPT颜色
+            Button(action: {
+                copyMessage()
+            }) {
+                Image(systemName: "square.on.square")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            // 重试按钮 - 参考ChatGPT颜色
+            Button(action: {
+                regenerateMessage()
+            }) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+    }
+
     private var timestampView: some View {
         Text(message.timestamp, style: .time)
             .font(.timestampFont)
@@ -134,5 +168,9 @@ struct MessageBubbleView: View {
         UIPasteboard.general.string = message.content
         HapticFeedback.textCopied()
         showingCopiedAlert = true
+    }
+
+    private func regenerateMessage() {
+        chatViewModel.regenerateMessage(for: message)
     }
 }

@@ -50,7 +50,7 @@ class ChatViewModel: ObservableObject {
             ChatMessage(role: messageVM.isFromUser ? .user : .assistant, content: messageVM.content)
         }
 
-        openAIService.sendMessage(userMessage, configuration: configuration, conversationHistory: Array(conversationHistory))
+        openAIService.sendMessage(userMessage, configuration: configuration, conversationHistory: conversationHistory)
             .receive(on: DispatchQueue.main)
             .sink(
                 receiveCompletion: { [weak self] completion in
@@ -137,6 +137,79 @@ class ChatViewModel: ObservableObject {
 
     func clearError() {
         currentError = nil
+    }
+
+    @MainActor
+    func regenerateMessage(for messageToRegenerate: MessageViewModel) {
+        guard !messageToRegenerate.isFromUser,
+              let configuration = configurationManager.activeConfiguration,
+              let messageIndex = messages.firstIndex(where: { $0.id == messageToRegenerate.id }) else {
+            return
+        }
+
+        // 找到对应的用户消息（应该在AI消息之前）
+        guard messageIndex > 0 else { return }
+        let userMessageIndex = messageIndex - 1
+        guard messages[userMessageIndex].isFromUser else { return }
+
+        let userMessage = messages[userMessageIndex].content
+
+        // 准备对话历史（只包含到要重新生成的消息之前的历史）
+        let conversationHistory: [ChatMessage] = Array(messages.prefix(messageIndex)).compactMap { messageVM in
+            // 只包含有内容的消息
+            guard !messageVM.content.isEmpty else { return nil }
+            return ChatMessage(role: messageVM.isFromUser ? .user : .assistant, content: messageVM.content)
+        }
+
+        // 删除当前的AI消息
+        messages.remove(at: messageIndex)
+
+        // 添加新的加载消息
+        let loadingMessageVM = MessageViewModel(content: "", isFromUser: false, timestamp: Date())
+        messages.insert(loadingMessageVM, at: messageIndex)
+
+        isLoading = true
+        currentError = nil
+
+        openAIService.sendMessage(userMessage, configuration: configuration, conversationHistory: conversationHistory)
+            .receive(on: DispatchQueue.main)
+            .sink(
+                receiveCompletion: { [weak self] completion in
+                    self?.isLoading = false
+
+                    switch completion {
+                    case .finished:
+                        // 保存完成的助手消息
+                        if let lastMessage = self?.messages.last, !lastMessage.isFromUser {
+                            self?.saveMessage(lastMessage)
+                        }
+                        HapticFeedback.messageReceived()
+
+                    case .failure(let error):
+                        self?.currentError = error
+                        // 错误时移除加载消息
+                        self?.messages.removeLast()
+                        HapticFeedback.errorOccurred()
+                    }
+                },
+                receiveValue: { [weak self] content in
+                    print("🔄 REGENERATING: [\(Date())] Chunk received: '\(content)'")
+                    guard let self = self, let lastIndex = self.messages.lastIndex(where: { !$0.isFromUser }) else {
+                        return
+                    }
+
+                    let lastMessage = self.messages[lastIndex]
+                    let updatedContent = lastMessage.content + content
+
+                    self.messages[lastIndex] = MessageViewModel(
+                        id: lastMessage.id,
+                        content: updatedContent,
+                        isFromUser: false,
+                        timestamp: lastMessage.timestamp
+                    )
+                }
+            )
+            .store(in: &cancellables)
     }
 
     // MARK: - Conversation Management
