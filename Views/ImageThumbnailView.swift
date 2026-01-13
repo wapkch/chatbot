@@ -81,7 +81,12 @@ struct ImageThumbnailView: View {
 
     private func loadThumbnail() async {
         isLoading = true
-        thumbnailImage = await ImageStorageService.shared.loadThumbnail(for: attachment)
+        do {
+            thumbnailImage = try await ImageStorageService.shared.loadThumbnail(for: attachment)
+        } catch {
+            // Handle error gracefully - thumbnailImage remains nil
+            print("Failed to load thumbnail: \(error)")
+        }
         isLoading = false
     }
 }
@@ -139,7 +144,12 @@ struct PreviewImageThumbnail: View {
 
     private func loadThumbnail() async {
         isLoading = true
-        thumbnailImage = await ImageStorageService.shared.loadThumbnail(for: attachment)
+        do {
+            thumbnailImage = try await ImageStorageService.shared.loadThumbnail(for: attachment)
+        } catch {
+            // Handle error gracefully - thumbnailImage remains nil
+            print("Failed to load thumbnail: \(error)")
+        }
         isLoading = false
     }
 }
