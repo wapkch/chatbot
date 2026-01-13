@@ -21,6 +21,7 @@ extension Message {
 
     @NSManaged public var id: UUID?
     @NSManaged public var content: String?
+    @NSManaged public var imageAttachments: String?
     @NSManaged public var isFromUser: Bool
     @NSManaged public var timestamp: Date?
     @NSManaged public var conversation: Conversation?
