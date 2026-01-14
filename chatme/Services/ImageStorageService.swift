@@ -100,52 +100,64 @@ class ImageStorageService {
 
     func loadOriginalImage(for attachment: ImageAttachment) async throws -> UIImage {
         // Load data on background thread
-        let data: Data
-        do {
-            data = try Data(contentsOf: attachment.originalURL)
-        } catch {
-            logger.error("Failed to load image data: \(error.localizedDescription)")
-            throw ImageStorageError.loadFailed
-        }
-
-        // UIImage creation should be on main thread
-        return try await MainActor.run {
-            guard let image = UIImage(data: data) else {
-                throw ImageStorageError.loadFailed
+        return try await withCheckedThrowingContinuation { continuation in
+            imageProcessingQueue.async {
+                do {
+                    let data = try Data(contentsOf: attachment.originalURL)
+                    
+                    // UIImage creation must be on main thread
+                    DispatchQueue.main.async {
+                        if let image = UIImage(data: data) {
+                            continuation.resume(returning: image)
+                        } else {
+                            continuation.resume(throwing: ImageStorageError.loadFailed)
+                        }
+                    }
+                } catch {
+                    self.logger.error("Failed to load image data: \(error.localizedDescription)")
+                    continuation.resume(throwing: ImageStorageError.loadFailed)
+                }
             }
-            return image
         }
     }
 
     func loadThumbnail(for attachment: ImageAttachment) async throws -> UIImage {
         // Load data on background thread
-        let data: Data
-        do {
-            data = try Data(contentsOf: attachment.thumbnailURL)
-        } catch {
-            logger.error("Failed to load thumbnail data: \(error.localizedDescription)")
-            throw ImageStorageError.loadFailed
-        }
-
-        // UIImage creation should be on main thread
-        return try await MainActor.run {
-            guard let image = UIImage(data: data) else {
-                throw ImageStorageError.loadFailed
+        return try await withCheckedThrowingContinuation { continuation in
+            imageProcessingQueue.async {
+                do {
+                    let data = try Data(contentsOf: attachment.thumbnailURL)
+                    
+                    // UIImage creation must be on main thread
+                    DispatchQueue.main.async {
+                        if let image = UIImage(data: data) {
+                            continuation.resume(returning: image)
+                        } else {
+                            continuation.resume(throwing: ImageStorageError.loadFailed)
+                        }
+                    }
+                } catch {
+                    self.logger.error("Failed to load thumbnail data: \(error.localizedDescription)")
+                    continuation.resume(throwing: ImageStorageError.loadFailed)
+                }
             }
-            return image
         }
     }
 
     func loadBase64(for attachment: ImageAttachment) async throws -> String {
         // Load and encode data on background thread
-        let data: Data
-        do {
-            data = try Data(contentsOf: attachment.originalURL)
-        } catch {
-            logger.error("Failed to load image data for base64: \(error.localizedDescription)")
-            throw ImageStorageError.loadFailed
+        return try await withCheckedThrowingContinuation { continuation in
+            imageProcessingQueue.async {
+                do {
+                    let data = try Data(contentsOf: attachment.originalURL)
+                    let base64String = data.base64EncodedString()
+                    continuation.resume(returning: base64String)
+                } catch {
+                    self.logger.error("Failed to load image data for base64: \(error.localizedDescription)")
+                    continuation.resume(throwing: ImageStorageError.loadFailed)
+                }
+            }
         }
-        return data.base64EncodedString()
     }
 
     func deleteImage(_ attachment: ImageAttachment) async throws {
