@@ -54,6 +54,7 @@ struct ImagePickerSheet: View {
             PhotoPickerView(
                 selectedImages: $selectedImages,
                 isPresented: $showingFullPicker,
+                sheetPresented: $isPresented,
                 maxSelection: maxSelection
             )
         }
@@ -521,6 +522,7 @@ struct CameraView: UIViewControllerRepresentable {
 struct PhotoPickerView: UIViewControllerRepresentable {
     @Binding var selectedImages: [UIImage]
     @Binding var isPresented: Bool
+    @Binding var sheetPresented: Bool
     let maxSelection: Int
 
     func makeUIViewController(context: Context) -> PHPickerViewController {
@@ -580,6 +582,7 @@ struct PhotoPickerView: UIViewControllerRepresentable {
 
                 await MainActor.run {
                     self.parent.selectedImages = images
+                    self.parent.sheetPresented = false
                 }
             }
         }
