@@ -335,13 +335,24 @@ struct ImagePickerSheet: View {
             for asset in selectedAssets {
                 group.addTask {
                     await withCheckedContinuation { continuation in
+                        var hasResumed = false
                         self.photoManager.requestImage(
                             for: asset,
                             targetSize: PHImageManagerMaximumSize,
                             contentMode: .aspectFill,
                             options: requestOptions
-                        ) { image, _ in
-                            continuation.resume(returning: image)
+                        ) { image, info in
+                            // PHImageManager may call this handler multiple times
+                            // (degraded image first, then full quality)
+                            // Only resume continuation once to avoid crash
+                            guard !hasResumed else { return }
+
+                            // Check if this is the final (non-degraded) result
+                            let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                            if !isDegraded {
+                                hasResumed = true
+                                continuation.resume(returning: image)
+                            }
                         }
                     }
                 }

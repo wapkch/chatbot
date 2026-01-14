@@ -1,16 +1,15 @@
 import Foundation
 import Combine
 
+private enum Constants {
+    static let streamDataPrefix = "data: "
+    static let streamEndMarker = "data: [DONE]"
+    static let contentTypeJSON = "application/json"
+    static let authorizationHeaderPrefix = "Bearer "
+}
+
 @MainActor
 class OpenAIService: ObservableObject {
-    // MARK: - Constants
-    private enum Constants {
-        static let streamDataPrefix = "data: "
-        static let streamEndMarker = "data: [DONE]"
-        static let contentTypeJSON = "application/json"
-        static let authorizationHeaderPrefix = "Bearer "
-    }
-
     // MARK: - Properties
     private let configurationManager: ConfigurationManager
     private var currentTask: Task<Void, Never>?
@@ -41,10 +40,12 @@ class OpenAIService: ObservableObject {
         let subject = PassthroughSubject<String, APIError>()
 
         currentTask?.cancel()
-        currentTask = Task {
+        currentTask = Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
+            
             do {
-                // Get API key from keychain
-                guard let apiKey = await configurationManager.getAPIKey(for: configuration) else {
+                // Get API key from keychain (hops to MainActor)
+                guard let apiKey = await self.configurationManager.getAPIKey(for: configuration) else {
                     subject.send(completion: .failure(APIError.authenticationFailed("API key not found")))
                     return
                 }
@@ -58,7 +59,7 @@ class OpenAIService: ObservableObject {
                     return
                 }
 
-                // Build request
+                // Build request (heavy JSON serialization and image loading runs on background)
                 let request = try await self.buildRequest(
                     url: url,
                     apiKey: apiKey,
@@ -106,7 +107,9 @@ class OpenAIService: ObservableObject {
             } catch let error as APIError {
                 subject.send(completion: .failure(error))
             } catch {
-                subject.send(completion: .failure(APIError.streamingError(error.localizedDescription)))
+                if !Task.isCancelled {
+                    subject.send(completion: .failure(APIError.streamingError(error.localizedDescription)))
+                }
             }
         }
 
@@ -115,7 +118,7 @@ class OpenAIService: ObservableObject {
 
     // MARK: - Private Methods
 
-    private func parseSSELine(_ line: String) -> String? {
+    nonisolated private func parseSSELine(_ line: String) -> String? {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmed.isEmpty,
@@ -138,7 +141,7 @@ class OpenAIService: ObservableObject {
         }
     }
 
-    private func buildRequest(
+    nonisolated private func buildRequest(
         url: URL,
         apiKey: String,
         message: ChatMessage,
@@ -192,7 +195,7 @@ class OpenAIService: ObservableObject {
     }
 
     /// Process message content, resolving image attachment placeholders to base64 data URLs
-    private func processMessageContent(_ message: ChatMessage) async throws -> ChatMessage {
+    nonisolated private func processMessageContent(_ message: ChatMessage) async throws -> ChatMessage {
         guard case .multipart(let parts) = message.content else {
             return message // Text-only message, no processing needed
         }
@@ -244,7 +247,7 @@ class OpenAIService: ObservableObject {
     }
 
     /// Convert ChatMessage to API-compatible dictionary format
-    private func messageToAPIFormat(_ message: ChatMessage) throws -> [String: Any] {
+    nonisolated private func messageToAPIFormat(_ message: ChatMessage) throws -> [String: Any] {
         switch message.content {
         case .text(let text):
             // Simple text message

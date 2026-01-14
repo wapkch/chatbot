@@ -1,17 +1,17 @@
 import Foundation
 
-struct ChatMessage: Codable {
+struct ChatMessage: Codable, Sendable {
     let role: Role
     let content: MessageContent
 
-    enum Role: String, CaseIterable, Codable {
+    enum Role: String, CaseIterable, Codable, Sendable {
         case user = "user"
         case assistant = "assistant"
         case system = "system"
     }
 
     // MARK: - Content Types
-    enum MessageContent: Codable {
+    enum MessageContent: Codable, Sendable {
         case text(String)
         case multipart([ContentPart])
 
@@ -60,21 +60,21 @@ struct ChatMessage: Codable {
         }
     }
 
-    struct ContentPart: Codable {
+    struct ContentPart: Codable, Sendable {
         let type: ContentType
         let text: String?
         let imageUrl: ImageUrl?
 
-        enum ContentType: String, Codable {
+        enum ContentType: String, Codable, Sendable {
             case text = "text"
             case imageUrl = "image_url"
         }
 
-        struct ImageUrl: Codable {
+        struct ImageUrl: Codable, Sendable {
             let url: String
             let detail: ImageDetail?
 
-            enum ImageDetail: String, Codable {
+            enum ImageDetail: String, Codable, Sendable {
                 case low = "low"
                 case high = "high"
                 case auto = "auto"

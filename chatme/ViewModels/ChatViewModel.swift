@@ -60,9 +60,15 @@ class ChatViewModel: ObservableObject {
 
         // Build conversation history
         let conversationHistory = messages.dropLast().compactMap { messageVM -> ChatMessage? in
+            // Skip messages that are empty and have no images
             guard !messageVM.content.isEmpty || messageVM.hasImages else { return nil }
 
             if messageVM.hasImages {
+                // Skip historical image messages if they have no text content
+                // This prevents 400 errors from sending empty content to API
+                if messageVM.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return nil // Skip image-only messages in history
+                }
                 // Note: We don't include historical images in the API call to save tokens
                 // Only the current message's images are sent
                 return ChatMessage(role: messageVM.isFromUser ? .user : .assistant, content: messageVM.content)

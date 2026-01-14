@@ -8,7 +8,7 @@ class ImageStorageService {
 
     private let fileManager = FileManager.default
     private let logger = Logger(subsystem: "com.chatme.ImageStorageService", category: "ImageStorage")
-    private let imageProcessingQueue = DispatchQueue(label: "com.chatme.image-processing", qos: .userInitiated)
+    private let imageProcessingQueue = DispatchQueue(label: "com.chatme.image-processing", qos: .userInitiated, attributes: .concurrent)
 
     // Thread-safe directory creation state
     private var directoriesCreated = false
@@ -104,14 +104,11 @@ class ImageStorageService {
             imageProcessingQueue.async {
                 do {
                     let data = try Data(contentsOf: attachment.originalURL)
-                    
-                    // UIImage creation must be on main thread
-                    DispatchQueue.main.async {
-                        if let image = UIImage(data: data) {
-                            continuation.resume(returning: image)
-                        } else {
-                            continuation.resume(throwing: ImageStorageError.loadFailed)
-                        }
+                    // Create UIImage on background thread (thread-safe)
+                    if let image = UIImage(data: data) {
+                        continuation.resume(returning: image)
+                    } else {
+                        continuation.resume(throwing: ImageStorageError.loadFailed)
                     }
                 } catch {
                     self.logger.error("Failed to load image data: \(error.localizedDescription)")
@@ -127,14 +124,11 @@ class ImageStorageService {
             imageProcessingQueue.async {
                 do {
                     let data = try Data(contentsOf: attachment.thumbnailURL)
-                    
-                    // UIImage creation must be on main thread
-                    DispatchQueue.main.async {
-                        if let image = UIImage(data: data) {
-                            continuation.resume(returning: image)
-                        } else {
-                            continuation.resume(throwing: ImageStorageError.loadFailed)
-                        }
+                    // Create UIImage on background thread (thread-safe)
+                    if let image = UIImage(data: data) {
+                        continuation.resume(returning: image)
+                    } else {
+                        continuation.resume(throwing: ImageStorageError.loadFailed)
                     }
                 } catch {
                     self.logger.error("Failed to load thumbnail data: \(error.localizedDescription)")
