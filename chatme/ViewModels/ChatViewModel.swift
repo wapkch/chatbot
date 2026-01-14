@@ -71,15 +71,9 @@ class ChatViewModel: ObservableObject {
             }
         }
 
-        // Choose the appropriate API method
-        let publisher: AnyPublisher<String, APIError>
-        if attachments.isEmpty {
-            publisher = openAIService.sendMessage(userMessage, configuration: configuration, conversationHistory: conversationHistory)
-        } else {
-            // TODO: This will be implemented in Task 10 - OpenAIService image support
-            // For now, fall back to text-only to maintain functionality
-            publisher = openAIService.sendMessage(userMessage, configuration: configuration, conversationHistory: conversationHistory)
-        }
+        // Create ChatMessage with Vision API support
+        let chatMessage = ChatMessage(role: .user, text: userMessage, imageAttachments: attachments)
+        let publisher = openAIService.sendMessage(chatMessage, configuration: configuration, conversationHistory: conversationHistory)
 
         publisher
             .receive(on: DispatchQueue.main)
@@ -206,7 +200,8 @@ class ChatViewModel: ObservableObject {
         isLoading = true
         currentError = nil
 
-        openAIService.sendMessage(userMessage, configuration: configuration, conversationHistory: conversationHistory)
+        let regenerateMessage = ChatMessage(role: .user, content: userMessage)
+        openAIService.sendMessage(regenerateMessage, configuration: configuration, conversationHistory: conversationHistory)
             .receive(on: DispatchQueue.main)
             .sink(
                 receiveCompletion: { [weak self] completion in

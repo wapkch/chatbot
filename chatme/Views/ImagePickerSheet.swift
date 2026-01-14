@@ -11,7 +11,7 @@ struct ImagePickerSheet: View {
     let maxSelection: Int
 
     @State private var recentPhotos: [PHAsset] = []
-    @State private var selectedAssets: Set<PHAsset> = []
+    @State private var selectedAssets: [PHAsset] = []  // Changed to Array for ordered selection
     @State private var showingFullPicker = false
     @State private var showingCamera = false
     @State private var hasPhotoPermission = false
@@ -21,27 +21,35 @@ struct ImagePickerSheet: View {
     private let photoManager = PHImageManager.default()
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Header
-                headerView
+        VStack(spacing: 0) {
+            // Drag indicator
+            dragIndicator
 
-                // Content
-                if isLoadingPhotos {
-                    loadingView
-                } else if hasPhotoPermission {
-                    photoGridView
-                } else {
-                    permissionView
-                }
+            // Header
+            headerView
 
-                // Bottom button
-                if !selectedAssets.isEmpty {
-                    addPhotosButton
-                }
+            // Content
+            if isLoadingPhotos {
+                loadingView
+            } else if hasPhotoPermission {
+                photoGridView
+            } else {
+                permissionView
             }
-            .background(Color(.systemBackground))
+
+            Spacer(minLength: 0)
+
+            // Bottom button
+            if !selectedAssets.isEmpty {
+                addPhotosButton
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground))
+        .presentationDetents([.height(280)])
+        .presentationDragIndicator(.hidden)
+        .presentationCornerRadius(20)
+        .presentationBackground(.regularMaterial)
         .sheet(isPresented: $showingFullPicker) {
             PhotoPickerView(
                 selectedImages: $selectedImages,
@@ -62,19 +70,22 @@ struct ImagePickerSheet: View {
         }
     }
 
+    // MARK: - Drag Indicator
+
+    private var dragIndicator: some View {
+        RoundedRectangle(cornerRadius: 2.5)
+            .fill(Color(.systemGray4))
+            .frame(width: 36, height: 5)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+    }
+
     // MARK: - Header View
 
     private var headerView: some View {
         HStack {
-            Button("Cancel") {
-                isPresented = false
-            }
-            .foregroundColor(.blue)
-
-            Spacer()
-
             Text("ChatMe")
-                .font(.headline)
+                .font(.title3)
                 .fontWeight(.semibold)
 
             Spacer()
@@ -83,16 +94,35 @@ struct ImagePickerSheet: View {
                 showingFullPicker = true
             }
             .foregroundColor(.blue)
+            .font(.body)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(Color(.systemBackground))
-        .overlay(
-            Rectangle()
-                .frame(height: 0.5)
-                .foregroundColor(Color(.separator)),
-            alignment: .bottom
-        )
+    }
+
+    // MARK: - Selected Preview Row
+
+    private var selectedPreviewRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Selected (\(selectedAssets.count)/\(maxSelection))")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 16)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 8) {
+                    ForEach(Array(selectedAssets), id: \.localIdentifier) { asset in
+                        SelectedAssetThumbnail(asset: asset) {
+                            toggleSelection(for: asset)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            .frame(height: 70)
+        }
+        .padding(.vertical, 12)
+        .background(Color(.systemGray6))
     }
 
     // MARK: - Loading View
@@ -143,18 +173,16 @@ struct ImagePickerSheet: View {
 
     private var photoGridView: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(spacing: 8) {
-                // Camera button (if camera is available and we have permission)
-                if UIImagePickerController.isSourceTypeAvailable(.camera) && hasCameraPermission {
-                    cameraButton
-                }
+            LazyHStack(spacing: 10) {
+                // Camera button (always show, even without permission - will request on tap)
+                cameraButton
 
                 // Recent photos
                 ForEach(recentPhotos, id: \.localIdentifier) { asset in
                     RecentPhotoThumbnail(
                         asset: asset,
                         isSelected: selectedAssets.contains(asset),
-                        selectionIndex: Array(selectedAssets).firstIndex(of: asset).map { $0 + 1 },
+                        selectionIndex: selectedAssets.firstIndex(of: asset).map { $0 + 1 },
                         maxSelection: maxSelection,
                         selectedCount: selectedAssets.count
                     ) { asset in
@@ -162,30 +190,31 @@ struct ImagePickerSheet: View {
                     }
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 20)
         }
         .frame(height: 120)
-        .padding(.vertical, 16)
+        .padding(.top, 8)
     }
+
+    // MARK: - Camera Button
 
     // MARK: - Camera Button
 
     private var cameraButton: some View {
         Button(action: {
-            showingCamera = true
+            if hasCameraPermission {
+                showingCamera = true
+            } else {
+                Task { await requestCameraPermission() }
+            }
         }) {
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.systemGray6))
-                .frame(width: 80, height: 80)
+                .fill(Color(.systemGray5))
+                .frame(width: 100, height: 100)
                 .overlay(
-                    VStack(spacing: 4) {
-                        Image(systemName: "camera.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(.primary)
-                        Text("Camera")
-                            .font(.caption2)
-                            .foregroundColor(.primary)
-                    }
+                    Image(systemName: "camera")
+                        .font(.system(size: 32))
+                        .foregroundColor(.secondary)
                 )
         }
     }
@@ -198,19 +227,17 @@ struct ImagePickerSheet: View {
                 await convertSelectedAssetsToImages()
             }
         }) {
-            HStack {
-                Image(systemName: "plus")
-                Text("Add \(selectedAssets.count) photo\(selectedAssets.count == 1 ? "" : "s")")
-            }
-            .font(.headline)
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(Color.blue)
-            .cornerRadius(12)
+            Text("Add \(selectedAssets.count) photo\(selectedAssets.count == 1 ? "" : "s")")
+                .font(.headline)
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(Color.black)
+                .clipShape(Capsule())
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 16)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+        .padding(.top, 12)
     }
 
     // MARK: - Private Methods
@@ -289,10 +316,10 @@ struct ImagePickerSheet: View {
     }
 
     private func toggleSelection(for asset: PHAsset) {
-        if selectedAssets.contains(asset) {
-            selectedAssets.remove(asset)
+        if let index = selectedAssets.firstIndex(of: asset) {
+            selectedAssets.remove(at: index)
         } else if selectedAssets.count < maxSelection {
-            selectedAssets.insert(asset)
+            selectedAssets.append(asset)
         }
     }
 
@@ -355,60 +382,62 @@ struct RecentPhotoThumbnail: View {
             }
             onTap(asset)
         }) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(.systemGray6))
-                    .frame(width: 80, height: 80)
-
-                if let image = image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 80, height: 80)
-                        .clipped()
-                        .cornerRadius(12)
-                } else if isLoading {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                } else {
-                    Image(systemName: "photo")
-                        .font(.system(size: 24))
-                        .foregroundColor(.secondary)
-                }
-
-                // Selection overlay
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.blue, lineWidth: 3)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.blue.opacity(0.1))
-                        )
-
-                    // Selection number badge
-                    if let index = selectionIndex {
-                        VStack {
-                            HStack {
-                                Spacer()
-                                Circle()
-                                    .fill(Color.blue)
-                                    .frame(width: 24, height: 24)
-                                    .overlay(
-                                        Text("\(index)")
-                                            .font(.caption.bold())
-                                            .foregroundColor(.white)
-                                    )
-                            }
-                            Spacer()
-                        }
-                        .padding(4)
+            ZStack(alignment: .topTrailing) {
+                // Photo thumbnail
+                Group {
+                    if let image = image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 100, height: 100)
+                            .clipped()
+                    } else if isLoading {
+                        Rectangle()
+                            .fill(Color(.systemGray5))
+                            .frame(width: 100, height: 100)
+                            .overlay(ProgressView().scaleEffect(0.8))
+                    } else {
+                        Rectangle()
+                            .fill(Color(.systemGray5))
+                            .frame(width: 100, height: 100)
+                            .overlay(
+                                Image(systemName: "photo")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(.secondary)
+                            )
                     }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 3)
+                )
+
+                // Selection badge (top-right corner)
+                if isSelected, let index = selectionIndex {
+                    Circle()
+                        .fill(Color.blue)
+                        .frame(width: 22, height: 22)
+                        .overlay(
+                            Text("\(index)")
+                                .font(.caption.bold())
+                                .foregroundColor(.white)
+                        )
+                        .offset(x: -6, y: 6)
+                } else if !isSelected && selectedCount < maxSelection {
+                    // Empty selection circle
+                    Circle()
+                        .stroke(Color.white, lineWidth: 2)
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(Color.black.opacity(0.3)))
+                        .offset(x: -6, y: 6)
                 }
 
                 // Disabled overlay for max selection
                 if !isSelected && selectedCount >= maxSelection {
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.black.opacity(0.3))
+                        .fill(Color.black.opacity(0.4))
+                        .frame(width: 100, height: 100)
                 }
             }
         }
@@ -420,19 +449,26 @@ struct RecentPhotoThumbnail: View {
 
     private func loadThumbnail() {
         let requestOptions = PHImageRequestOptions()
-        requestOptions.deliveryMode = .fastFormat
+        requestOptions.deliveryMode = .opportunistic
         requestOptions.resizeMode = .fast
         requestOptions.isSynchronous = false
+        requestOptions.isNetworkAccessAllowed = true
 
         photoManager.requestImage(
             for: asset,
             targetSize: CGSize(width: 160, height: 160), // 2x for retina
             contentMode: .aspectFill,
             options: requestOptions
-        ) { image, _ in
+        ) { image, info in
             DispatchQueue.main.async {
-                self.image = image
-                self.isLoading = false
+                if let image = image {
+                    self.image = image
+                }
+                // Check if this is the final result (not a degraded version)
+                let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                if !isDegraded {
+                    self.isLoading = false
+                }
             }
         }
     }
@@ -545,6 +581,76 @@ struct PhotoPickerView: UIViewControllerRepresentable {
                 await MainActor.run {
                     self.parent.selectedImages = images
                 }
+            }
+        }
+    }
+}
+
+// MARK: - SelectedAssetThumbnail
+
+struct SelectedAssetThumbnail: View {
+    let asset: PHAsset
+    let onRemove: () -> Void
+
+    @State private var image: UIImage?
+    @State private var isLoading = true
+
+    private let photoManager = PHImageManager.default()
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Group {
+                if let image = image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 60, height: 60)
+                        .clipped()
+                        .cornerRadius(8)
+                } else if isLoading {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(.systemGray5))
+                        .frame(width: 60, height: 60)
+                        .overlay(ProgressView().scaleEffect(0.6))
+                } else {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(.systemGray5))
+                        .frame(width: 60, height: 60)
+                        .overlay(
+                            Image(systemName: "photo")
+                                .foregroundColor(.secondary)
+                        )
+                }
+            }
+
+            // Remove button
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(.white, .black.opacity(0.6))
+            }
+            .offset(x: 6, y: -6)
+        }
+        .onAppear {
+            loadThumbnail()
+        }
+    }
+
+    private func loadThumbnail() {
+        let requestOptions = PHImageRequestOptions()
+        requestOptions.deliveryMode = .fastFormat
+        requestOptions.resizeMode = .fast
+        requestOptions.isSynchronous = false
+
+        photoManager.requestImage(
+            for: asset,
+            targetSize: CGSize(width: 120, height: 120),
+            contentMode: .aspectFill,
+            options: requestOptions
+        ) { image, _ in
+            DispatchQueue.main.async {
+                self.image = image
+                self.isLoading = false
             }
         }
     }

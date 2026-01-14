@@ -189,9 +189,6 @@ struct ChatView: View {
                 }
             }
 
-            Divider()
-                .background(Color(.separator))
-
             // Input area
             inputAreaView
         }
@@ -230,38 +227,51 @@ struct ChatView: View {
 
     // MARK: - Input Area View
     private var inputAreaView: some View {
-        VStack(spacing: 0) {
-            // Image preview row (when images are selected)
+        VStack(spacing: 8) {
+            // Image preview (when images are selected)
             if !chatViewModel.pendingImageAttachments.isEmpty {
-                ImagePreviewRow(
-                    attachments: chatViewModel.pendingImageAttachments,
-                    onDelete: { attachment in
-                        chatViewModel.removeImageAttachment(attachment)
-                    }
-                )
+                HStack {
+                    ForEach(chatViewModel.pendingImageAttachments) { attachment in
+                        ZStack(alignment: .topTrailing) {
+                            AsyncThumbnailForInput(attachment: attachment)
+                                .frame(width: 120, height: 120)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
 
-                Divider()
-                    .background(Color(.separator))
+                            Button(action: {
+                                chatViewModel.removeImageAttachment(attachment)
+                            }) {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .frame(width: 24, height: 24)
+                                    .background(Color.black.opacity(0.6))
+                                    .clipShape(Circle())
+                            }
+                            .offset(x: 6, y: -6)
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
             }
 
             // Input row with + button, text field, and send button
-            HStack(spacing: 12) {
-                // + button for image selection
+            HStack(alignment: .center, spacing: 8) {
+                // + button
                 Button(action: {
                     showingImagePicker = true
                 }) {
                     Image(systemName: "plus")
                         .font(.system(size: 20, weight: .medium))
-                        .foregroundColor(.blue)
-                        .frame(width: 32, height: 32)
-                        .background(Color.blue.opacity(0.1))
-                        .clipShape(Circle())
+                        .foregroundColor(.primary)
+                        .frame(width: 36, height: 36)
                 }
                 .disabled(chatViewModel.isLoading)
 
-                HStack(spacing: 8) {
-                    TextField("Type a message...", text: $chatViewModel.inputText, axis: .vertical)
-                        .font(.inputFont)
+                // Text field with background
+                HStack {
+                    TextField("Ask anything", text: $chatViewModel.inputText, axis: .vertical)
+                        .font(.body)
                         .textFieldStyle(.plain)
                         .disabled(chatViewModel.isLoading)
                         .lineLimit(1...6)
@@ -272,28 +282,27 @@ struct ChatView: View {
                         }
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(Color.inputBackground)
+                .padding(.vertical, 10)
+                .background(Color(.systemGray6))
                 .clipShape(RoundedRectangle(cornerRadius: 20))
 
                 // Send button
                 Button {
                     sendMessage()
                 } label: {
-                    Image(systemName: chatViewModel.isLoading ? "stop.circle.fill" : "paperplane.fill")
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundColor(sendButtonColor)
-                        .frame(width: 40, height: 40)
-                        .background(sendButtonBackgroundColor)
+                    Image(systemName: chatViewModel.isLoading ? "stop.fill" : "arrow.up")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(shouldDisableSendButton ? .gray : .white)
+                        .frame(width: 32, height: 32)
+                        .background(shouldDisableSendButton ? Color(.systemGray5) : Color.black)
                         .clipShape(Circle())
-                        .loadingAnimation(chatViewModel.isLoading)
                 }
                 .disabled(shouldDisableSendButton)
             }
-            .padding(.horizontal)
-            .padding(.vertical, 12)
-            .background(Color.chatBackground)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
+        .background(Color(.systemBackground))
     }
 
     // MARK: - Computed Properties
@@ -351,4 +360,44 @@ struct ChatView: View {
         }
     }
 
+}
+
+// MARK: - AsyncThumbnailForInput
+
+struct AsyncThumbnailForInput: View {
+    let attachment: ImageAttachment
+
+    @State private var image: UIImage?
+    @State private var isLoading = true
+
+    var body: some View {
+        Group {
+            if let image = image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else if isLoading {
+                Rectangle()
+                    .fill(Color(.systemGray5))
+                    .overlay(ProgressView().scaleEffect(0.8))
+            } else {
+                Rectangle()
+                    .fill(Color(.systemGray5))
+                    .overlay(
+                        Image(systemName: "photo")
+                            .foregroundColor(.secondary)
+                    )
+            }
+        }
+        .task {
+            do {
+                let loadedImage = try await ImageStorageService.shared.loadThumbnail(for: attachment)
+                image = loadedImage
+                isLoading = false
+            } catch {
+                print("Failed to load thumbnail: \(error)")
+                isLoading = false
+            }
+        }
+    }
 }

@@ -3,6 +3,8 @@ import SwiftUI
 struct MessageBubbleView: View {
     let message: MessageViewModel
     @State private var showingCopiedAlert = false
+    @State private var showingFullScreenImage = false
+    @State private var selectedImageIndex = 0
     @ObservedObject var chatViewModel: ChatViewModel
 
     var body: some View {
@@ -47,7 +49,7 @@ struct MessageBubbleView: View {
 
     private var messageBubble: some View {
         Group {
-            if message.content.isEmpty && !message.isFromUser {
+            if message.content.isEmpty && !message.isFromUser && !message.hasImages {
                 // Typing indicator - 保留淡灰背景
                 HStack(spacing: 4) {
                     ForEach(0..<3) { index in
@@ -72,21 +74,45 @@ struct MessageBubbleView: View {
                 }
             } else {
                 if message.isFromUser {
-                    // User messages: plain text
-                    Text(message.content)
-                        .font(.messageFont)
-                        .foregroundColor(textColor)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(messageBubbleColor)
-                        .clipShape(messageBubbleShape)
-                        .textSelection(.enabled)
+                    // User messages
+                    VStack(alignment: .trailing, spacing: 8) {
+                        // Images (if any)
+                        if message.hasImages {
+                            MessageImagesGrid(
+                                attachments: message.imageAttachments,
+                                onTap: { index in
+                                    selectedImageIndex = index
+                                    showingFullScreenImage = true
+                                }
+                            )
+                        }
+
+                        // Text (if any)
+                        if !message.content.isEmpty {
+                            Text(message.content)
+                                .font(.messageFont)
+                                .foregroundColor(textColor)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background(messageBubbleColor)
+                                .clipShape(messageBubbleShape)
+                                .textSelection(.enabled)
+                        }
+                    }
                 } else {
                     // Assistant messages: Smart markdown rendering with streaming support
                     // 全宽无气泡样式
                     SmartMarkdownRenderer(content: message.content)
                         .padding(.vertical, 12)
                 }
+            }
+        }
+        .fullScreenCover(isPresented: $showingFullScreenImage) {
+            if message.hasImages {
+                FullScreenImageViewer(
+                    attachments: message.imageAttachments,
+                    currentIndex: selectedImageIndex
+                )
             }
         }
     }
