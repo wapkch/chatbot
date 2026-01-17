@@ -8,7 +8,8 @@ class ImageStorageService {
 
     private let fileManager = FileManager.default
     private let logger = Logger(subsystem: "com.chatme.ImageStorageService", category: "ImageStorage")
-    private let imageProcessingQueue = DispatchQueue(label: "com.chatme.image-processing", qos: .userInitiated, attributes: .concurrent)
+    // Changed to serial queue to avoid race conditions with continuation resumption
+    private let imageProcessingQueue = DispatchQueue(label: "com.chatme.image-processing", qos: .userInitiated)
 
     // Thread-safe directory creation state
     private var directoriesCreated = false
