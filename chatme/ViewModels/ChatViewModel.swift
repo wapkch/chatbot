@@ -108,15 +108,12 @@ class ChatViewModel: ObservableObject {
                     }
                 },
                 receiveValue: { [weak self] content in
-                    print("🔍 STREAMING: [\(Date())] Chunk received: '\(content)'")
                     guard let self = self, let lastIndex = self.messages.lastIndex(where: { !$0.isFromUser }) else {
                         return
                     }
 
                     let lastMessage = self.messages[lastIndex]
                     let updatedContent = lastMessage.content + content
-
-                    print("🔍 STREAMING: Updating UI from '\(lastMessage.content)' to '\(updatedContent)'")
 
                     self.messages[lastIndex] = MessageViewModel(
                         id: lastMessage.id,
@@ -179,28 +176,38 @@ class ChatViewModel: ObservableObject {
 
     // Async version to avoid blocking main thread
     private func saveMessageAsync(_ messageViewModel: MessageViewModel) async {
-        await Task.detached(priority: .utility) { [weak self] in
-            guard let self = self else { return }
+        // Perform CoreData operations on a background context
+        let backgroundContext = NSManagedObjectContext(concurrencyType: .privateQueueConcurrencyType)
+        backgroundContext.parent = managedObjectContext
 
-            await MainActor.run {
-                let message = Message(context: self.managedObjectContext)
-                message.id = messageViewModel.id
-                message.content = messageViewModel.content
-                message.isFromUser = messageViewModel.isFromUser
-                message.timestamp = messageViewModel.timestamp
-                message.imageAttachmentsList = messageViewModel.imageAttachments
+        backgroundContext.performAndWait {
+            let message = Message(context: backgroundContext)
+            message.id = messageViewModel.id
+            message.content = messageViewModel.content
+            message.isFromUser = messageViewModel.isFromUser
+            message.timestamp = messageViewModel.timestamp
+            message.imageAttachmentsList = messageViewModel.imageAttachments
 
-                if let conversation = self.currentConversation {
-                    message.conversation = conversation
-                }
-
-                do {
-                    try self.managedObjectContext.save()
-                } catch {
-                    print("Failed to save message: \(error)")
-                }
+            if let conversationID = self.currentConversation?.objectID {
+                let conversation = backgroundContext.object(with: conversationID) as? Conversation
+                message.conversation = conversation
             }
-        }.value
+
+            do {
+                try backgroundContext.save()
+            } catch {
+                print("Failed to save message in background: \(error)")
+            }
+        }
+
+        // Save to parent context on main thread
+        await MainActor.run {
+            do {
+                try self.managedObjectContext.save()
+            } catch {
+                print("Failed to save message to main context: \(error)")
+            }
+        }
     }
 
     func clearError() {
