@@ -98,6 +98,9 @@ class ChatViewModel: ObservableObject {
                         }
                         HapticFeedback.messageReceived()
 
+                        // Generate title for new conversations after first exchange
+                        self?.generateTitleIfNeeded()
+
                     case .failure(let error):
                         self?.currentError = error
                         self?.messages.removeLast()
@@ -202,6 +205,48 @@ class ChatViewModel: ObservableObject {
 
     func clearError() {
         currentError = nil
+    }
+
+    // MARK: - Title Generation
+
+    /// Generate conversation title if this is the first exchange
+    private func generateTitleIfNeeded() {
+        // Only generate title if:
+        // 1. There's a current conversation
+        // 2. The conversation has the default title "新会话"
+        // 3. There are at least 2 messages (user + assistant)
+        guard let conversation = currentConversation,
+              conversation.title == "新会话",
+              messages.count >= 2,
+              let configuration = configurationManager.activeConfiguration else {
+            return
+        }
+
+        // Get the first user message and AI response
+        let userMessage = messages.first(where: { $0.isFromUser })?.content ?? ""
+        let aiResponse = messages.first(where: { !$0.isFromUser })?.content
+
+        // Generate title asynchronously
+        Task {
+            do {
+                let title = try await TitleGenerationService.shared.generateTitle(
+                    userMessage: userMessage,
+                    aiResponse: aiResponse,
+                    configuration: configuration,
+                    configurationManager: configurationManager
+                )
+
+                // Update conversation title
+                await MainActor.run {
+                    conversation.title = title
+                    conversation.updatedAt = Date()
+                    try? managedObjectContext.save()
+                }
+            } catch {
+                print("Failed to generate title: \(error)")
+                // Keep the default title if generation fails
+            }
+        }
     }
 
     @MainActor
