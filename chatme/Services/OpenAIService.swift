@@ -42,7 +42,7 @@ class OpenAIService: ObservableObject {
         currentTask?.cancel()
         currentTask = Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
-            
+
             do {
                 // Get API key from keychain (hops to MainActor)
                 guard let apiKey = await self.configurationManager.getAPIKey(for: configuration) else {

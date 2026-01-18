@@ -49,7 +49,11 @@ class ChatViewModel: ObservableObject {
             imageAttachments: attachments
         )
         messages.append(userMessageVM)
-        saveMessage(userMessageVM)
+
+        // Save message asynchronously to avoid blocking main thread
+        Task {
+            await saveMessageAsync(userMessageVM)
+        }
 
         // Add loading assistant message
         let loadingMessageVM = MessageViewModel(content: "", isFromUser: false, timestamp: Date())
@@ -168,6 +172,32 @@ class ChatViewModel: ObservableObject {
         } catch {
             print("Failed to save message: \(error)")
         }
+    }
+
+    // Async version to avoid blocking main thread
+    private func saveMessageAsync(_ messageViewModel: MessageViewModel) async {
+        await Task.detached(priority: .utility) { [weak self] in
+            guard let self = self else { return }
+
+            await MainActor.run {
+                let message = Message(context: self.managedObjectContext)
+                message.id = messageViewModel.id
+                message.content = messageViewModel.content
+                message.isFromUser = messageViewModel.isFromUser
+                message.timestamp = messageViewModel.timestamp
+                message.imageAttachmentsList = messageViewModel.imageAttachments
+
+                if let conversation = self.currentConversation {
+                    message.conversation = conversation
+                }
+
+                do {
+                    try self.managedObjectContext.save()
+                } catch {
+                    print("Failed to save message: \(error)")
+                }
+            }
+        }.value
     }
 
     func clearError() {
