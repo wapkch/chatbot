@@ -9,6 +9,7 @@ struct ChatView: View {
     @State private var showingSettings = false
     @State private var showingError = false
     @State private var showingImagePicker = false
+    @FocusState private var isInputFocused: Bool
 
     init() {
         let configManager = ConfigurationManager()
@@ -273,6 +274,7 @@ struct ChatView: View {
                     TextField("Ask anything", text: $chatViewModel.inputText, axis: .vertical)
                         .font(.body)
                         .textFieldStyle(.plain)
+                        .focused($isInputFocused)
                         .disabled(chatViewModel.isLoading)
                         .lineLimit(1...6)
                         .onSubmit {
@@ -344,6 +346,11 @@ struct ChatView: View {
         navigationManager.currentConversation = chatViewModel.currentConversation
         navigationManager.refreshConversationList()
         navigationManager.startNewConversation()
+
+        // 自动弹出键盘
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            isInputFocused = true
+        }
     }
 
     private func handleSelectedImages(_ images: [UIImage]) async {
