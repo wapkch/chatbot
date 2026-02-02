@@ -93,13 +93,19 @@ class ChatViewModel: ObservableObject {
 
                     switch completion {
                     case .finished:
+                        // Check if there's actually content - if empty, the task was cancelled
                         if let lastMessage = self?.messages.last, !lastMessage.isFromUser {
-                            self?.saveMessage(lastMessage)
-                        }
-                        HapticFeedback.messageReceived()
+                            if lastMessage.content.isEmpty {
+                                // Task was cancelled before receiving any content, remove the empty message
+                                self?.messages.removeLast()
+                            } else {
+                                self?.saveMessage(lastMessage)
+                                HapticFeedback.messageReceived()
 
-                        // Generate title for new conversations after first exchange
-                        self?.generateTitleIfNeeded()
+                                // Generate title for new conversations after first exchange
+                                self?.generateTitleIfNeeded()
+                            }
+                        }
 
                     case .failure(let error):
                         self?.currentError = error

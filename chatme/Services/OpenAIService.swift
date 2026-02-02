@@ -107,7 +107,10 @@ class OpenAIService: ObservableObject {
             } catch let error as APIError {
                 subject.send(completion: .failure(error))
             } catch {
-                if !Task.isCancelled {
+                if Task.isCancelled {
+                    // Task was cancelled - send finished completion so subscriber can clean up
+                    subject.send(completion: .finished)
+                } else {
                     subject.send(completion: .failure(APIError.streamingError(error.localizedDescription)))
                 }
             }
